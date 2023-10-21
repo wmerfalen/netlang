@@ -20,10 +20,15 @@ namespace netlang {
       };
       struct lib {
         void stream_method_to(const method_t& method,const char* url, const char* file_name) {
+          std::string script = "$(which curl) -sSL '";
+          script += url;
+          script += "' -o '";
+          script += file_name;
+          script += "'";
           switch(method){
             default: // purposeful fall-through
             case method_t::NETLANG_HTTPS_GET:
-              std::cout << "GET " << url << " > " << file_name << "\n";
+              popen(script.c_str(),"w");
               break;
           }
         }

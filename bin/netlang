@@ -40,7 +40,7 @@ var Parser = require("./parser");
 var NodeFS = require('node:fs/promises');
 (function main() {
     return __awaiter(this, void 0, void 0, function () {
-        var inputFile, file, rdp, parseResult;
+        var inputFile, file, rdp;
         var _a;
         return __generator(this, function (_b) {
             switch (_b.label) {
@@ -55,10 +55,13 @@ var NodeFS = require('node:fs/promises');
                     file = (_a.fd = _b.sent(),
                         _a);
                     rdp = new Parser.netlang.parser.RecursiveDescentParser(file);
-                    return [4 /*yield*/, rdp.parse()];
+                    //let parseResult: Parser.netlang.parser.ParseResult = await rdp.parse();
+                    //console.debug(parseResult);
+                    return [4 /*yield*/, rdp.generateProgram()];
                 case 2:
-                    parseResult = _b.sent();
-                    console.debug(parseResult);
+                    //let parseResult: Parser.netlang.parser.ParseResult = await rdp.parse();
+                    //console.debug(parseResult);
+                    _b.sent();
                     return [2 /*return*/];
             }
         });

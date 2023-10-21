@@ -38,6 +38,7 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.netlang = void 0;
 var NodeFS = require("fs");
+var NodeChildProcess = require('child_process');
 var netlang;
 (function (netlang) {
     var parser;
@@ -201,10 +202,13 @@ var netlang;
                     acc = this.accept("transport");
                     if (acc.present) {
                         this.logic += "#include \"transports/".concat(acc.contents, ".hpp\"\n");
+                        this.logic += "#include \"transports/factory.hpp\"\n";
+                        this.logic += "#include <memory>\n";
                         this.logic += "int main(int argc,char** argv){\n";
-                        this.logic += " auto lib = netlang_transports::".concat(acc.contents, "::make();\n");
+                        this.logic += " std::unique_ptr<netlang::transports::".concat(acc.contents, "::lib> lib = netlang::transports::").concat(acc.contents, "::make();\n");
                         this.offset += acc.contents.length;
                         this.debug("Transport recognized: " + acc.contents);
+                        var transport = acc.contents;
                         exp = this.expect("method");
                         var method = exp.contents;
                         if (!exp.present) {
@@ -249,7 +253,7 @@ var netlang;
                             this.consumeIf("whitespace");
                             var file_name = this.expect("filename").contents;
                             this.debug("file_name: \"".concat(file_name, "\""));
-                            this.logic += "lib.stream_method_to(NETLANG::".concat(method, ",\"").concat(url, "\",\"").concat(file_name, "\");\n");
+                            this.logic += "lib->stream_method_to(".concat(this.cpp_method(transport, method), ",\"").concat(url, "\",\"").concat(file_name, "\");\n");
                         }
                         this.consumeIf("whitespace");
                     }
@@ -257,6 +261,10 @@ var netlang;
                 catch (e) {
                     this.reportError(e);
                 }
+            };
+            RecursiveDescentParser.prototype.cpp_method = function (transport, method) {
+                var m = "netlang::transports::".concat(transport, "::method_t");
+                return "".concat(m, "::NETLANG_").concat(String(transport).toUpperCase(), "_").concat(String(method).toUpperCase());
             };
             RecursiveDescentParser.prototype.consumeIf = function (sym) {
                 switch (sym) {
@@ -307,6 +315,25 @@ var netlang;
                                 this.logic += "\nreturn 0;}\n";
                                 this.debug(this.logic);
                                 return [2 /*return*/, res];
+                        }
+                    });
+                });
+            };
+            RecursiveDescentParser.prototype.generateProgram = function () {
+                return __awaiter(this, void 0, void 0, function () {
+                    return __generator(this, function (_a) {
+                        switch (_a.label) {
+                            case 0: return [4 /*yield*/, this.parse()];
+                            case 1:
+                                _a.sent();
+                                return [4 /*yield*/, NodeFS.writeFileSync('/tmp/netlang-0.cpp', this.logic)];
+                            case 2:
+                                _a.sent();
+                                return [4 /*yield*/, NodeChildProcess.execSync("g++ -I$PWD/cpp/ -std=c++20 /tmp/netlang-0.cpp -o /tmp/netlang.out ; /tmp/netlang.out")];
+                            case 3:
+                                _a.sent();
+                                this.debug('done. look for /tmp/netlang.out');
+                                return [2 /*return*/];
                         }
                     });
                 });

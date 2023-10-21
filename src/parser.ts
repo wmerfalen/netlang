@@ -13,6 +13,8 @@ export namespace netlang.parser {
     | "transport"
     | "comment"
     | "method"
+  | "filename"
+  |"whitespace"
     | "open-paren"
     | "close-paren"
     | "single-quote"
@@ -20,6 +22,7 @@ export namespace netlang.parser {
     | "scheme"
     | "host"
     | "uri"
+  |"semicolon"
     | "=>"
     | "file";
 
@@ -72,6 +75,16 @@ export namespace netlang.parser {
         case "double-quote":
           if (this.buffer[this.offset] === `"`) {
             return { present: true, contents: `"` };
+          }
+          break;
+        case "semicolon":
+          if(this.buffer[this.offset] === ';'){
+            return {present: true,contents: ';'};
+          }
+          break;
+        case "=>":
+          if(this.buffer.substr(this.offset,2) === '=>'){
+            return {present: true,contents: '=>'};
           }
           break;
         default:
@@ -137,6 +150,23 @@ export namespace netlang.parser {
             };
           }
           break;
+        case "=>":
+          if(this.buffer.substr(this.offset,2) == '=>'){
+            return {present: true,contents: '=>'};
+          }
+          break;
+        case "filename":
+          let is_file: boolean = true;
+          let ctr : number;
+          let file_name: string = '';
+          for(ctr=this.offset;is_file;++ctr){
+            is_file = !!this.buffer[ctr].match(/[a-zA-Z0-9\.]/);
+            if(is_file){
+              file_name += this.buffer[ctr];
+            }
+          }
+          return {present: file_name.length > 0,contents: file_name};
+          break;
         default:
           return exp;
       }
@@ -181,7 +211,6 @@ export namespace netlang.parser {
           this.offset += 1;
           let url: string = this.parseUrl(single_quote);
           this.debug(`url: "${url}"`);
-          this.dump();
           if (single_quote) {
             this.expect("single-quote");
           } else {
@@ -189,9 +218,34 @@ export namespace netlang.parser {
           }
           this.offset += 1;
           this.expect("close-paren");
+          this.offset += 1;
+          this.consumeIf("whitespace");
+          if(this.accept("semicolon").present){
+            this.offset += 1;
+            return this.programBlock();
+          }
+          if(this.accept("=>").present){
+            this.debug("found =>");
+            this.offset += 2;
+            this.consumeIf("whitespace");
+            let file_name: string = this.expect("filename").contents
+            this.debug(`file_name: "${file_name}"`);
+          }
+          this.consumeIf("whitespace");
         }
       } catch (e: any) {
         this.reportError(e);
+      }
+    }
+    consumeIf(sym: SymToken) {
+      switch(sym){
+        case "whitespace":
+          for(; this.buffer.length > this.offset && ["\n","\t"," "].includes(this.buffer[this.offset]);){
+            this.offset += 1;
+          }
+          break;
+        default:
+          break;
       }
     }
     dump() {

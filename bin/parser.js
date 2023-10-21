@@ -92,6 +92,16 @@ var netlang;
                             return { present: true, contents: "\"" };
                         }
                         break;
+                    case "semicolon":
+                        if (this.buffer[this.offset] === ';') {
+                            return { present: true, contents: ';' };
+                        }
+                        break;
+                    case "=>":
+                        if (this.buffer.substr(this.offset, 2) === '=>') {
+                            return { present: true, contents: '=>' };
+                        }
+                        break;
                     default:
                         break;
                 }
@@ -151,6 +161,23 @@ var netlang;
                             };
                         }
                         break;
+                    case "=>":
+                        if (this.buffer.substr(this.offset, 2) == '=>') {
+                            return { present: true, contents: '=>' };
+                        }
+                        break;
+                    case "filename":
+                        var is_file = true;
+                        var ctr = void 0;
+                        var file_name = '';
+                        for (ctr = this.offset; is_file; ++ctr) {
+                            is_file = !!this.buffer[ctr].match(/[a-zA-Z0-9\.]/);
+                            if (is_file) {
+                                file_name += this.buffer[ctr];
+                            }
+                        }
+                        return { present: file_name.length > 0, contents: file_name };
+                        break;
                     default:
                         return exp;
                 }
@@ -196,7 +223,6 @@ var netlang;
                         this.offset += 1;
                         var url = this.parseUrl(single_quote);
                         this.debug("url: \"".concat(url, "\""));
-                        this.dump();
                         if (single_quote) {
                             this.expect("single-quote");
                         }
@@ -205,10 +231,35 @@ var netlang;
                         }
                         this.offset += 1;
                         this.expect("close-paren");
+                        this.offset += 1;
+                        this.consumeIf("whitespace");
+                        if (this.accept("semicolon").present) {
+                            this.offset += 1;
+                            return this.programBlock();
+                        }
+                        if (this.accept("=>").present) {
+                            this.debug("found =>");
+                            this.offset += 2;
+                            this.consumeIf("whitespace");
+                            var file_name = this.expect("filename").contents;
+                            this.debug("file_name: \"".concat(file_name, "\""));
+                        }
+                        this.consumeIf("whitespace");
                     }
                 }
                 catch (e) {
                     this.reportError(e);
+                }
+            };
+            RecursiveDescentParser.prototype.consumeIf = function (sym) {
+                switch (sym) {
+                    case "whitespace":
+                        for (; this.buffer.length > this.offset && ["\n", "\t", " "].includes(this.buffer[this.offset]);) {
+                            this.offset += 1;
+                        }
+                        break;
+                    default:
+                        break;
                 }
             };
             RecursiveDescentParser.prototype.dump = function () {

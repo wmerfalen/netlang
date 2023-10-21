@@ -6,4 +6,5 @@ fi
 tsc
 cp ./dist/main.js ./bin/netlang
 cp ./dist/transports/*.js* ./bin/transports/
-cp ./dist/transports/*.js* ./src/transports/
+cp ./dist/*.js* ./src/
+cp ./dist/*.js* ./bin/

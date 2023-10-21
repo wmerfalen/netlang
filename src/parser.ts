@@ -39,11 +39,13 @@ export namespace netlang.parser {
     file: File;
     offset: number;
     line: number;
+    logic: string;
     constructor(file: File) {
       this.buffer = "";
       this.file = file;
       this.offset = 0;
       this.line = 0;
+      this.logic = '#include <iostream>\n';
     }
     async readFile(name: string): Promise<string> {
       this.buffer = (await NodeFS.readFileSync(name)).toString();
@@ -188,9 +190,15 @@ export namespace netlang.parser {
         }
         acc = this.accept("transport");
         if (acc.present) {
+          this.logic += `#include "transports/${acc.contents}.hpp"\n`
+          this.logic += `#include "transports/factory.hpp"\n`
+          this.logic += `#include <memory>\n`;
+          this.logic += `int main(int argc,char** argv){\n`;
+          this.logic += ` std::unique_ptr<netlang::transports::${acc.contents}> lib = netlang::transports::${acc.contents}::make();\n`;
           this.offset += acc.contents.length;
           this.debug("Transport recognized: " + acc.contents);
           exp = this.expect("method");
+          let method: string = exp.contents;
           if (!exp.present) {
             this.reportError("Expected method");
             return;
@@ -222,6 +230,7 @@ export namespace netlang.parser {
           this.consumeIf("whitespace");
           if(this.accept("semicolon").present){
             this.offset += 1;
+            this.logic += `lib.${method}("${url}");\n`;
             return this.programBlock();
           }
           if(this.accept("=>").present){
@@ -230,6 +239,7 @@ export namespace netlang.parser {
             this.consumeIf("whitespace");
             let file_name: string = this.expect("filename").contents
             this.debug(`file_name: "${file_name}"`);
+            this.logic += `lib.stream_method_to(NETLANG::${method},"${url}","${file_name}");\n`;
           }
           this.consumeIf("whitespace");
         }
@@ -281,6 +291,8 @@ export namespace netlang.parser {
       let res: ParseResult = { ok: false, issue: "", line: -1 };
 
       this.programBlock();
+      this.logic += `\nreturn 0;}\n`;
+      this.debug(this.logic);
       return res;
     }
   }

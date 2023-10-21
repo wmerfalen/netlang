@@ -48,6 +48,7 @@ var netlang;
                 this.file = file;
                 this.offset = 0;
                 this.line = 0;
+                this.logic = '#include <iostream>\n';
             }
             RecursiveDescentParser.prototype.readFile = function (name) {
                 return __awaiter(this, void 0, void 0, function () {
@@ -199,9 +200,13 @@ var netlang;
                     }
                     acc = this.accept("transport");
                     if (acc.present) {
+                        this.logic += "#include \"transports/".concat(acc.contents, ".hpp\"\n");
+                        this.logic += "int main(int argc,char** argv){\n";
+                        this.logic += " auto lib = netlang_transports::".concat(acc.contents, "::make();\n");
                         this.offset += acc.contents.length;
                         this.debug("Transport recognized: " + acc.contents);
                         exp = this.expect("method");
+                        var method = exp.contents;
                         if (!exp.present) {
                             this.reportError("Expected method");
                             return;
@@ -235,6 +240,7 @@ var netlang;
                         this.consumeIf("whitespace");
                         if (this.accept("semicolon").present) {
                             this.offset += 1;
+                            this.logic += "lib.".concat(method, "(\"").concat(url, "\");\n");
                             return this.programBlock();
                         }
                         if (this.accept("=>").present) {
@@ -243,6 +249,7 @@ var netlang;
                             this.consumeIf("whitespace");
                             var file_name = this.expect("filename").contents;
                             this.debug("file_name: \"".concat(file_name, "\""));
+                            this.logic += "lib.stream_method_to(NETLANG::".concat(method, ",\"").concat(url, "\",\"").concat(file_name, "\");\n");
                         }
                         this.consumeIf("whitespace");
                     }
@@ -297,6 +304,8 @@ var netlang;
                             case 2:
                                 res = { ok: false, issue: "", line: -1 };
                                 this.programBlock();
+                                this.logic += "\nreturn 0;}\n";
+                                this.debug(this.logic);
                                 return [2 /*return*/, res];
                         }
                     });

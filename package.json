@@ -1,0 +1,24 @@
+{
+  "name": "netlang",
+  "version": "1.0.0",
+  "description": "A simple programming language for networking.",
+  "main": "index.js",
+  "scripts": {
+    "test": "npm run test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wmerfalen/netlang.git"
+  },
+  "keywords": [
+    "networking",
+    "programming",
+    "language"
+  ],
+  "author": "William Merfalen",
+  "license": "SEE LICENSE IN README.md",
+  "bugs": {
+    "url": "https://github.com/wmerfalen/netlang/issues"
+  },
+  "homepage": "https://github.com/wmerfalen/netlang#readme"
+}

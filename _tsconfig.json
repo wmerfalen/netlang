@@ -1,0 +1,37 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "Node",
+    "outDir": "dist",
+    "baseUrl": "server/src/",
+    "sourceMap": true,
+    "strict": true,
+    "experimentalDecorators": true,
+    "noImplicitReturns": true,
+    "allowSyntheticDefaultImports": true,
+		"allowJs": true
+  },
+  "exclude": [
+    "next.config.js",
+    "node_modules",
+    "server/src/styles",
+		"dist",
+		"logs",
+		"public",
+		"src"
+  ],
+  "include": [
+    "server/src/cli.ts",
+    "server/src/app/services/incident/create.ts",
+    "server/src/app/controllers/incidentController.ts",
+    "server/src/app/controllers/nofiticationController.ts",
+    "server/src/utils/index.ts",
+    "server/src/app/middlewares/request.d.ts",
+    "server/src/app/types/ion.d.ts",
+    "server/src/app/models/*.ts",
+    "server/src/app/services/push-notifications/*.ts",
+    "server/src/app/services/user/updateUser.ts",
+    "server/src/app/services/auth/refresh.ts",
+    "server/src/app/services/auth/token.ts"
+  ]
+}

@@ -1,5 +1,4 @@
 #!/bin/bash
-cp _tsconfig.json tsconfig.json
 if [[ ! -d ./bin/transports ]]; then
   mkdir ./bin/transports
 fi

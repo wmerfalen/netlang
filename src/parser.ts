@@ -13,6 +13,10 @@ export namespace netlang.parser {
     | "transport"
     | "comment"
     | "method"
+    | "open-paren"
+    | "close-paren"
+  | "single-quote"
+  | "double-quote"
     | "scheme"
     | "host"
     | "uri"
@@ -42,7 +46,7 @@ export namespace netlang.parser {
       this.buffer = (await NodeFS.readFileSync(name)).toString();
       this.offset = 0;
       this.line = 1;
-      console.debug(this.buffer,'<-- buffer');
+      console.debug(this.buffer, "<-- buffer");
       return this.buffer;
     }
     accept(sym: SymToken): Accepted {
@@ -60,26 +64,76 @@ export namespace netlang.parser {
             return { present: true, contents: this.buffer[this.offset] };
           }
           break;
+        case "single-quote":
+          if (this.buffer[this.offset] === `'`){
+            return { present: true, contents: `'`, };
+          }
+          break;
+        case "double-quote":
+          if (this.buffer[this.offset] === `"`){
+            return { present: true, contents: `"`, };
+          }
+          break;
+        default:
+          break;
       }
       return { present: false, contents: "" };
     }
     consumeLine() {
-      for(let i=this.offset; this.buffer.length > this.offset && this.buffer[this.offset] != '\n';this.offset++){}
+      for (
+        let i = this.offset;
+        this.buffer.length > this.offset && this.buffer[this.offset] != "\n";
+        this.offset++
+      ) {}
       ++this.offset;
       ++this.line;
     }
-    expect(sym : SymToken) : Expected {
-      let exp : Expected = {
+    expect(sym: SymToken): Expected {
+      let exp: Expected = {
         present: false,
-        contents: ''
+        contents: "",
       };
-      switch(sym){
+      switch (sym) {
         case "method":
-          let matches = this.buffer.substr(this.offset,String('options').length + 1).match(/^.(get|put|post|delete|options)/);
-          if(matches){
+          let matches = this.buffer
+            .substr(this.offset, String("options").length + 1)
+            .match(/^.(get|put|post|delete|options)/);
+          if (matches) {
             return {
               present: true,
               contents: matches[1],
+            };
+          }
+          break;
+        case "close-paren":
+          if (this.buffer[this.offset] === ")") {
+            return {
+              present: true,
+              contents: ")",
+            };
+          }
+          break;
+        case "open-paren":
+          if (this.buffer[this.offset] === "(") {
+            return {
+              present: true,
+              contents: "(",
+            };
+          }
+          break;
+        case "single-quote":
+          if (this.buffer[this.offset] === `'`){
+            return {
+              present: true,
+              contents: `'`,
+            };
+          }
+          break;
+        case "double-quote":
+          if (this.buffer[this.offset] === `"`){
+            return {
+              present: true,
+              contents: `"`,
             };
           }
           break;
@@ -91,28 +145,57 @@ export namespace netlang.parser {
     reportError(msg: string) {
       console.error(`ERROR: ${msg} on line: ${this.line}`);
     }
-    programBlock() : void {
+    programBlock(): void {
       let acc: Accepted = { present: false, contents: "" };
-      let exp: Expected = { present: false, contents: ""};
+      let exp: Expected = { present: false, contents: "" };
       acc = this.accept("comment");
-      if(acc.present){
-        console.debug('found comment. consuming line');
+      if (acc.present) {
+        console.debug("found comment. consuming line");
         this.consumeLine();
         return this.programBlock();
       }
       acc = this.accept("transport");
       if (acc.present) {
         this.offset += acc.contents.length;
-        console.debug("Transport recognized: " + acc.contents);
+        this.debug("Transport recognized: " + acc.contents);
         exp = this.expect("method");
-        if(!exp.present){
-          this.reportError('Expected method');
+        if (!exp.present) {
+          this.reportError("Expected method");
           return;
-        }else{
-          console.debug(`Method found: "${exp.contents}"`);
-          this.offset += exp.contents.length;
+        } else {
+          this.debug(`Method found: "${exp.contents}"`);
+          this.offset += exp.contents.length + 1; // +1 to account for .
         }
+        exp = this.expect("open-paren");
+        if(!exp.present){
+          this.reportError("Expected open parenthesis");
+          return;
+        }
+        this.offset += 1;
+        this.debug(`buff: "${this.buffer.substr(this.offset)}"`);
+        let single_quote : boolean = false;
+        acc = this.accept("single-quote");
+        if(!acc.present && (this.expect("double-quote")).present === false){
+          this.reportError("Expected either single or double quote");
+          return;
+        }
+        if(acc.present){
+          single_quote = true;
+        }
+        this.offset += 1;
+        let url:string = this.parseUrl(single_quote);
+        this.debug(`url: "${url}"`);
       }
+    }
+    parseUrl(single_quote: boolean) : string {
+      let url : string = '';
+      for(; this.buffer.length > this.offset && this.buffer[this.offset] != (single_quote ? `'` : `"`); this.offset++){
+        url += this.buffer[this.offset];
+      }
+      return url;
+    }
+    debug(msg: string) {
+      console.debug(msg);
     }
 
     async parse(): Promise<ParseResult> {

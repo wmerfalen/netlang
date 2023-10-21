@@ -61,7 +61,7 @@ var netlang;
                                 _a.buffer = (_b.sent()).toString();
                                 this.offset = 0;
                                 this.line = 1;
-                                console.debug(this.buffer, '<-- buffer');
+                                console.debug(this.buffer, "<-- buffer");
                                 return [2 /*return*/, this.buffer];
                         }
                     });
@@ -82,26 +82,72 @@ var netlang;
                             return { present: true, contents: this.buffer[this.offset] };
                         }
                         break;
+                    case "single-quote":
+                        if (this.buffer[this.offset] === "'") {
+                            return { present: true, contents: "'", };
+                        }
+                        break;
+                    case "double-quote":
+                        if (this.buffer[this.offset] === "\"") {
+                            return { present: true, contents: "\"", };
+                        }
+                        break;
+                    default:
+                        break;
                 }
                 return { present: false, contents: "" };
             };
             RecursiveDescentParser.prototype.consumeLine = function () {
-                for (var i = this.offset; this.buffer.length > this.offset && this.buffer[this.offset] != '\n'; this.offset++) { }
+                for (var i = this.offset; this.buffer.length > this.offset && this.buffer[this.offset] != "\n"; this.offset++) { }
                 ++this.offset;
                 ++this.line;
             };
             RecursiveDescentParser.prototype.expect = function (sym) {
                 var exp = {
                     present: false,
-                    contents: ''
+                    contents: "",
                 };
                 switch (sym) {
                     case "method":
-                        var matches = this.buffer.substr(this.offset, String('options').length + 1).match(/^.(get|put|post|delete|options)/);
+                        var matches = this.buffer
+                            .substr(this.offset, String("options").length + 1)
+                            .match(/^.(get|put|post|delete|options)/);
                         if (matches) {
                             return {
                                 present: true,
                                 contents: matches[1],
+                            };
+                        }
+                        break;
+                    case "close-paren":
+                        if (this.buffer[this.offset] === ")") {
+                            return {
+                                present: true,
+                                contents: ")",
+                            };
+                        }
+                        break;
+                    case "open-paren":
+                        if (this.buffer[this.offset] === "(") {
+                            return {
+                                present: true,
+                                contents: "(",
+                            };
+                        }
+                        break;
+                    case "single-quote":
+                        if (this.buffer[this.offset] === "'") {
+                            return {
+                                present: true,
+                                contents: "'",
+                            };
+                        }
+                        break;
+                    case "double-quote":
+                        if (this.buffer[this.offset] === "\"") {
+                            return {
+                                present: true,
+                                contents: "\"",
                             };
                         }
                         break;
@@ -118,24 +164,53 @@ var netlang;
                 var exp = { present: false, contents: "" };
                 acc = this.accept("comment");
                 if (acc.present) {
-                    console.debug('found comment. consuming line');
+                    console.debug("found comment. consuming line");
                     this.consumeLine();
                     return this.programBlock();
                 }
                 acc = this.accept("transport");
                 if (acc.present) {
                     this.offset += acc.contents.length;
-                    console.debug("Transport recognized: " + acc.contents);
+                    this.debug("Transport recognized: " + acc.contents);
                     exp = this.expect("method");
                     if (!exp.present) {
-                        this.reportError('Expected method');
+                        this.reportError("Expected method");
                         return;
                     }
                     else {
-                        console.debug("Method found: \"".concat(exp.contents, "\""));
-                        this.offset += exp.contents.length;
+                        this.debug("Method found: \"".concat(exp.contents, "\""));
+                        this.offset += exp.contents.length + 1; // +1 to account for .
                     }
+                    exp = this.expect("open-paren");
+                    if (!exp.present) {
+                        this.reportError("Expected open parenthesis");
+                        return;
+                    }
+                    this.offset += 1;
+                    this.debug("buff: \"".concat(this.buffer.substr(this.offset), "\""));
+                    var single_quote = false;
+                    acc = this.accept("single-quote");
+                    if (!acc.present && (this.expect("double-quote")).present === false) {
+                        this.reportError("Expected either single or double quote");
+                        return;
+                    }
+                    if (acc.present) {
+                        single_quote = true;
+                    }
+                    this.offset += 1;
+                    var url = this.parseUrl(single_quote);
+                    this.debug("url: \"".concat(url, "\""));
                 }
+            };
+            RecursiveDescentParser.prototype.parseUrl = function (single_quote) {
+                var url = '';
+                for (; this.buffer.length > this.offset && this.buffer[this.offset] != (single_quote ? "'" : "\""); this.offset++) {
+                    url += this.buffer[this.offset];
+                }
+                return url;
+            };
+            RecursiveDescentParser.prototype.debug = function (msg) {
+                console.debug(msg);
             };
             RecursiveDescentParser.prototype.parse = function () {
                 return __awaiter(this, void 0, void 0, function () {

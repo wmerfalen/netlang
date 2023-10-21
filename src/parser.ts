@@ -15,8 +15,8 @@ export namespace netlang.parser {
     | "method"
     | "open-paren"
     | "close-paren"
-  | "single-quote"
-  | "double-quote"
+    | "single-quote"
+    | "double-quote"
     | "scheme"
     | "host"
     | "uri"
@@ -65,13 +65,13 @@ export namespace netlang.parser {
           }
           break;
         case "single-quote":
-          if (this.buffer[this.offset] === `'`){
-            return { present: true, contents: `'`, };
+          if (this.buffer[this.offset] === `'`) {
+            return { present: true, contents: `'` };
           }
           break;
         case "double-quote":
-          if (this.buffer[this.offset] === `"`){
-            return { present: true, contents: `"`, };
+          if (this.buffer[this.offset] === `"`) {
+            return { present: true, contents: `"` };
           }
           break;
         default:
@@ -122,7 +122,7 @@ export namespace netlang.parser {
           }
           break;
         case "single-quote":
-          if (this.buffer[this.offset] === `'`){
+          if (this.buffer[this.offset] === `'`) {
             return {
               present: true,
               contents: `'`,
@@ -130,7 +130,7 @@ export namespace netlang.parser {
           }
           break;
         case "double-quote":
-          if (this.buffer[this.offset] === `"`){
+          if (this.buffer[this.offset] === `"`) {
             return {
               present: true,
               contents: `"`,
@@ -140,56 +140,71 @@ export namespace netlang.parser {
         default:
           return exp;
       }
+      throw `Expected ${sym}`;
       return exp;
     }
     reportError(msg: string) {
       console.error(`ERROR: ${msg} on line: ${this.line}`);
     }
     programBlock(): void {
-      let acc: Accepted = { present: false, contents: "" };
-      let exp: Expected = { present: false, contents: "" };
-      acc = this.accept("comment");
-      if (acc.present) {
-        console.debug("found comment. consuming line");
-        this.consumeLine();
-        return this.programBlock();
-      }
-      acc = this.accept("transport");
-      if (acc.present) {
-        this.offset += acc.contents.length;
-        this.debug("Transport recognized: " + acc.contents);
-        exp = this.expect("method");
-        if (!exp.present) {
-          this.reportError("Expected method");
-          return;
-        } else {
-          this.debug(`Method found: "${exp.contents}"`);
-          this.offset += exp.contents.length + 1; // +1 to account for .
+      try {
+        let acc: Accepted = { present: false, contents: "" };
+        let exp: Expected = { present: false, contents: "" };
+        acc = this.accept("comment");
+        if (acc.present) {
+          console.debug("found comment. consuming line");
+          this.consumeLine();
+          return this.programBlock();
         }
-        exp = this.expect("open-paren");
-        if(!exp.present){
-          this.reportError("Expected open parenthesis");
-          return;
+        acc = this.accept("transport");
+        if (acc.present) {
+          this.offset += acc.contents.length;
+          this.debug("Transport recognized: " + acc.contents);
+          exp = this.expect("method");
+          if (!exp.present) {
+            this.reportError("Expected method");
+            return;
+          } else {
+            this.debug(`Method found: "${exp.contents}"`);
+            this.offset += exp.contents.length + 1; // +1 to account for .
+          }
+          this.expect("open-paren");
+          this.offset += 1;
+          let single_quote: boolean = false;
+          acc = this.accept("single-quote");
+          if (!acc.present) {
+            this.expect("double-quote");
+          }
+          if (acc.present) {
+            single_quote = true;
+          }
+          this.offset += 1;
+          let url: string = this.parseUrl(single_quote);
+          this.debug(`url: "${url}"`);
+          this.dump();
+          if (single_quote) {
+            this.expect("single-quote");
+          } else {
+            this.expect("double-quote");
+          }
+          this.offset += 1;
+          this.expect("close-paren");
         }
-        this.offset += 1;
-        this.debug(`buff: "${this.buffer.substr(this.offset)}"`);
-        let single_quote : boolean = false;
-        acc = this.accept("single-quote");
-        if(!acc.present && (this.expect("double-quote")).present === false){
-          this.reportError("Expected either single or double quote");
-          return;
-        }
-        if(acc.present){
-          single_quote = true;
-        }
-        this.offset += 1;
-        let url:string = this.parseUrl(single_quote);
-        this.debug(`url: "${url}"`);
+      } catch (e: any) {
+        this.reportError(e);
       }
     }
-    parseUrl(single_quote: boolean) : string {
-      let url : string = '';
-      for(; this.buffer.length > this.offset && this.buffer[this.offset] != (single_quote ? `'` : `"`); this.offset++){
+    dump() {
+      this.debug(`buff: "${this.buffer.substr(this.offset)}"`);
+    }
+    parseUrl(single_quote: boolean): string {
+      let url: string = "";
+      for (
+        ;
+        this.buffer.length > this.offset &&
+        this.buffer[this.offset] != (single_quote ? `'` : `"`);
+        this.offset++
+      ) {
         url += this.buffer[this.offset];
       }
       return url;

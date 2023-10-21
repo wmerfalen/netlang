@@ -20,5 +20,8 @@
   "bugs": {
     "url": "https://github.com/wmerfalen/netlang/issues"
   },
-  "homepage": "https://github.com/wmerfalen/netlang#readme"
+  "homepage": "https://github.com/wmerfalen/netlang#readme",
+  "devDependencies": {
+    "@types/node": "^20.8.7"
+  }
 }

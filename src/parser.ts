@@ -52,7 +52,6 @@ export namespace netlang.parser {
       this.buffer = (await NodeFS.readFileSync(name)).toString();
       this.offset = 0;
       this.line = 1;
-      console.debug(this.buffer, "<-- buffer");
       return this.buffer;
     }
     accept(sym: SymToken): Accepted {
@@ -301,10 +300,16 @@ export namespace netlang.parser {
       this.debug(this.logic);
       return res;
     }
-    async generateProgram()  {
+    async generateProgram(requested_out_file: string)  {
+      let out_file: string = '';
+      for(const ch of requested_out_file){
+        if(ch.match(/^[a-zA-Z0-9-\/.]{1}$/)){
+          out_file += ch;
+        }
+      }
       await this.parse();
       await NodeFS.writeFileSync('/tmp/netlang-0.cpp',this.logic);
-      await NodeChildProcess.execSync("g++ -I$PWD/cpp/ -std=c++20 /tmp/netlang-0.cpp -o /tmp/netlang.out ; /tmp/netlang.out");
+      await NodeChildProcess.execSync(`g++ -I$PWD/cpp/ -I$PWD/cpp/boost-includes -std=c++20 /tmp/netlang-0.cpp -o '${out_file}'`);
       this.debug('done. look for /tmp/netlang.out');
     }
   }

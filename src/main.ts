@@ -12,5 +12,5 @@ const NodeFS = require('node:fs/promises');
     fd: await NodeFS.open(inputFile,'r'),
   };
   let rdp: RDP = new Parser.netlang.parser.RecursiveDescentParser(file);
-  await rdp.generateProgram();
+  await rdp.generateProgram(process.argv[3]);
 })();

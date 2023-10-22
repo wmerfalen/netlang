@@ -63,7 +63,6 @@ var netlang;
                                 _a.buffer = (_b.sent()).toString();
                                 this.offset = 0;
                                 this.line = 1;
-                                console.debug(this.buffer, "<-- buffer");
                                 return [2 /*return*/, this.buffer];
                         }
                     });
@@ -319,17 +318,26 @@ var netlang;
                     });
                 });
             };
-            RecursiveDescentParser.prototype.generateProgram = function () {
+            RecursiveDescentParser.prototype.generateProgram = function (requested_out_file) {
                 return __awaiter(this, void 0, void 0, function () {
+                    var out_file, _i, requested_out_file_1, ch;
                     return __generator(this, function (_a) {
                         switch (_a.label) {
-                            case 0: return [4 /*yield*/, this.parse()];
+                            case 0:
+                                out_file = '';
+                                for (_i = 0, requested_out_file_1 = requested_out_file; _i < requested_out_file_1.length; _i++) {
+                                    ch = requested_out_file_1[_i];
+                                    if (ch.match(/^[a-zA-Z0-9-\/.]{1}$/)) {
+                                        out_file += ch;
+                                    }
+                                }
+                                return [4 /*yield*/, this.parse()];
                             case 1:
                                 _a.sent();
                                 return [4 /*yield*/, NodeFS.writeFileSync('/tmp/netlang-0.cpp', this.logic)];
                             case 2:
                                 _a.sent();
-                                return [4 /*yield*/, NodeChildProcess.execSync("g++ -I$PWD/cpp/ -std=c++20 /tmp/netlang-0.cpp -o /tmp/netlang.out ; /tmp/netlang.out")];
+                                return [4 /*yield*/, NodeChildProcess.execSync("g++ -I$PWD/cpp/ -I$PWD/cpp/boost-includes -std=c++20 /tmp/netlang-0.cpp -o '".concat(out_file, "'"))];
                             case 3:
                                 _a.sent();
                                 this.debug('done. look for /tmp/netlang.out');

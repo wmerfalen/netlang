@@ -1,0 +1,12 @@
+# this is a comment
+
+server_1: [tcp:8080];
+server_1.transform(gzip);
+server_2: [tcp:8080];
+server_2.transform(gzip);
+server_3: [tcp:8080];
+server_3.transform(gzip);
+https.get('https://gist.githubusercontent.com/wmerfalen/38fa07a9691d5681f771c5f381a3a830/raw/f87573aad733e5f577e00d3ead4d22641df71057/screeps-db.json') => [pipe_1];
+[pipe_1] => [server_1: {mount: '/static/files/'}];
+[pipe_1] => [server_2: {mount: '/static/files/'}];
+[pipe_1] => [server_3: {mount: '/protected/static/files/'}];

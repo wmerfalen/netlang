@@ -55,12 +55,8 @@ var NodeFS = require('node:fs/promises');
                     file = (_a.fd = _b.sent(),
                         _a);
                     rdp = new Parser.netlang.parser.RecursiveDescentParser(file);
-                    //let parseResult: Parser.netlang.parser.ParseResult = await rdp.parse();
-                    //console.debug(parseResult);
-                    return [4 /*yield*/, rdp.generateProgram()];
+                    return [4 /*yield*/, rdp.generateProgram(process.argv[3])];
                 case 2:
-                    //let parseResult: Parser.netlang.parser.ParseResult = await rdp.parse();
-                    //console.debug(parseResult);
                     _b.sent();
                     return [2 /*return*/];
             }

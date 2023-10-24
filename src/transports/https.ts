@@ -3,7 +3,7 @@ const NodeFs = require("node:fs/promises");
 const NodeCrypto = require("node:crypto");
 
 export namespace netlang {
-  export type Method = "GET" | "POST" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
+  export type Method = "GET" | "DELETE" | "HEAD" | "OPTIONS" | "PATCH" | "POST" | "PUT" ;
   export type Handle = typeof NodeFs.FileHandle;
 
   export interface File {

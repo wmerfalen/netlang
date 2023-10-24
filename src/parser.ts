@@ -1,31 +1,68 @@
 import * as Transport from "./transports/https";
 const NodeFS = require("fs");
 const NodeChildProcess = require('child_process');
+const NodeCrytpo = require('crypto');
 
 export namespace netlang.parser {
-  type Method = Transport.netlang.Method;
+  type Method = Transport.netlang.Method | "run" | "host" | "echo_reply" | "echo_request";
   type File = Transport.netlang.File;
   export interface ParseResult {
     ok: boolean;
     issue: string;
     line: number;
   }
+  type Transport = 
+    | "https"
+    | "http"
+    | "http2"
+    | "udp"
+    | "tcp"
+    | "arp"
+    | "icmp"
+    | "ssh"
+    | "scp"
+    | "sftp"
+    | "ftp"
+    | "websocket"
+    | "crontab"
   export type SymToken =
-    | "transport"
-    | "comment"
-    | "method"
-  | "filename"
-  |"whitespace"
-    | "open-paren"
-    | "close-paren"
-    | "single-quote"
-    | "double-quote"
-    | "scheme"
-    | "host"
-    | "uri"
-  |"semicolon"
     | "=>"
-    | "file";
+    | "=>>"
+    | "|=>"
+    | "<=|"
+    | "close-paren"
+    | "comma"
+    | "comment"
+    | "crontab"
+    | "crontab-minute"
+    | "crontab-hour"
+    | "crontab-domonth"
+    | "crontab-month"
+    | "crontab-doweek"
+    | "double-quote"
+    | "file"
+    | "filename"
+    | "host"
+    | "%include"
+    | "}"
+    | "{"
+    | "lambda-capture"
+    | ")"
+    | ","
+    | "("
+    | "lambda-param-name"
+    | "lambda-param-type"
+    | "->"
+    | "method"
+    | "newline"
+    | "open-paren"
+    | "run"
+    | "semicolon"
+    | "scheme"
+    | "single-quote"
+    | "transport"
+    | "uri"
+    | "whitespace";
 
   export interface Accepted {
     present: boolean;
@@ -35,18 +72,50 @@ export namespace netlang.parser {
     present: boolean;
     contents: string;
   }
+  export interface TransportVariableDeclaration {
+    transport: Transport;
+    name: string;
+    line: number;
+  }
+  export interface EnvImport {
+    key: string;
+    value: string;
+  }
   export class RecursiveDescentParser {
     buffer: string;
     file: File;
     offset: number;
     line: number;
     logic: string;
+    /**
+     * Includes that are internal. This means includes that are
+     * part of the generated C++ and not requested by the user
+     * in a program via %include "file"
+     */
+    includes: Array<string>;
+    transportLibraries: Array<TransportVariableDeclaration>;
+    /**
+     * Includes that are requested by the user via %include "file"
+     * These are not actual #includes that are generated in the
+     * C++ code.
+     */
+    userIncludes: Array<string>;
+    envImports: Array<EnvImport>;
+    requiresDbImport: boolean;
     constructor(file: File) {
       this.buffer = "";
       this.file = file;
       this.offset = 0;
       this.line = 0;
-      this.logic = '#include <iostream>\n';
+      this.transportLibraries = [];
+      this.includes = [];
+      this.includes.push(`<iostream>`);
+      this.includes.push(`"transports/factory.hpp"`);
+      this.includes.push(`<memory>`);
+      this.logic = '';
+      this.userIncludes = [];
+      this.envImports = [];
+      this.requiresDbImport = false;
     }
     async readFile(name: string): Promise<string> {
       this.buffer = (await NodeFS.readFileSync(name)).toString();
@@ -58,8 +127,8 @@ export namespace netlang.parser {
       switch (sym) {
         case "transport":
           let match = this.buffer
-            .substr(this.offset, 5)
-            .match(/^(https|http|tcp|udp|icmp|arp)/);
+            .substr(this.offset, String('websocket').length)
+            .match(/^(https|http|http2|udp|tcp|arp|icmp|ssh|scp|sftp|ftp|websocket|crontab|arp)/);
           if (match) {
             return { present: true, contents: match[1] };
           }
@@ -89,6 +158,22 @@ export namespace netlang.parser {
             return {present: true,contents: '=>'};
           }
           break;
+        case "%include":
+          if(this.buffer.substr(this.offset,String('%include').length) === '%include'){
+            return {present: true,contents: '%include'};
+          }
+          break;
+        case "newline":
+          if(this.buffer.substr(this.offset,1) === '\n'){
+            return {present: true,contents: '\n'};
+          }
+          break;
+        case "whitespace":
+          let matches = this.buffer.substr(this.offset).match(/^([\s]+)/);
+          if(matches){
+            return {present: true,contents: matches[1]}
+          }
+          break;
         default:
           break;
       }
@@ -112,7 +197,7 @@ export namespace netlang.parser {
         case "method":
           let matches = this.buffer
             .substr(this.offset, String("options").length + 1)
-            .match(/^.(get|put|post|delete|options)/);
+            .match(/^.(run|knock|host|get|put|post|delete|options)/);
           if (matches) {
             return {
               present: true,
@@ -162,12 +247,19 @@ export namespace netlang.parser {
           let ctr : number;
           let file_name: string = '';
           for(ctr=this.offset;is_file;++ctr){
-            is_file = !!this.buffer[ctr].match(/[a-zA-Z0-9\.]/);
+            is_file = !!this.buffer[ctr].match(/[\(\)_\/ \\a-zA-Z0-9\.]/);
             if(is_file){
               file_name += this.buffer[ctr];
             }
           }
           return {present: file_name.length > 0,contents: file_name};
+          break;
+        case "whitespace": {
+          let matches = this.buffer.substr(this.offset).match(/^([\s]+)/);
+          if(matches){
+            return {present: true,contents: matches[1]};
+          }
+        }
           break;
         default:
           return exp;
@@ -178,23 +270,94 @@ export namespace netlang.parser {
     reportError(msg: string) {
       console.error(`ERROR: ${msg} on line: ${this.line}`);
     }
+    getTransportLibrary(transport: Transport) : string {
+      for(const lib of this.transportLibraries){
+        if(lib.transport == transport){
+          return lib.name;
+        }
+      }
+      let name: string = `lib_${transport}_${this.randomAlpha(8)}`
+      this.logic += `std::unique_ptr<netlang::transports::${transport}::lib> ${name} = netlang::transports::${transport}::make();\n`;
+      this.transportLibraries.push({
+        transport: transport,
+        name,
+        line: this.line,
+      });
+      return name;
+
+    }
+    randomAlpha(len: number) : string {
+      let str : string = '';
+      do {
+        str += NodeCrytpo.randomBytes(16).toString('base64').replace(/[^a-zA-Z0-9]+/g,'');
+      }while(str.length < len);
+      return str.substr(0,len);
+    }
+    acceptableTransportMethod(transport: Transport,method: Method) : boolean {
+      if(['https','http','http2'].includes(transport) && [
+        'get','post','put','patch','delete','options',
+      'host'].includes(method)){
+        return true;
+      }
+      if(transport === "crontab" && !['run'].includes(method)){
+        return false;
+      }
+      if(transport === "icmp" && ![
+        'echo_request','echo_reply',
+      ].includes(method)){
+        return false;
+      }
+      return true;
+    }
     programBlock(): void {
       try {
         let acc: Accepted = { present: false, contents: "" };
         let exp: Expected = { present: false, contents: "" };
+        if(this.accept("newline").present){
+          this.debug('found newline. consuming line');
+          this.consumeLine();
+          return this.programBlock();
+        }
+        acc = this.accept("whitespace");
+        if(acc.present){
+          this.debug("found whitespace");
+          this.offset += acc.contents.length;
+          return this.programBlock();
+        }
         acc = this.accept("comment");
         if (acc.present) {
           console.debug("found comment. consuming line");
           this.consumeLine();
           return this.programBlock();
         }
+        acc = this.accept("%include");
+        if(acc.present){
+          this.debug('found %include');
+          this.offset += String('%include').length;
+          this.offset += this.expect("whitespace").contents.length;
+          this.dump();
+          let single_quote: boolean = this.accept("single-quote").present;
+          if(!single_quote){
+            this.expect("double-quote");
+          }
+          this.offset += 1;
+          let include : string = '';
+          include = this.expect("filename").contents;
+          this.userIncludes.push(include);
+          this.offset += include.length;
+          this.expect(single_quote ? "single-quote" : "double-quote");
+          this.offset += 1;
+          this.expect("newline");
+          this.offset += 1;
+          return this.programBlock();
+        }
         acc = this.accept("transport");
+        let lib_id : string = '';
         if (acc.present) {
-          this.logic += `#include "transports/${acc.contents}.hpp"\n`
-          this.logic += `#include "transports/factory.hpp"\n`
-          this.logic += `#include <memory>\n`;
-          this.logic += `int main(int argc,char** argv){\n`;
-          this.logic += ` std::unique_ptr<netlang::transports::${acc.contents}::lib> lib = netlang::transports::${acc.contents}::make();\n`;
+          lib_id = this.getTransportLibrary(<Transport>acc.contents);
+          this.includes.push(`"transports/${acc.contents}.hpp"`);
+          // TODO: change this to a randomized variable name and register it
+          // as being associated with the specific transport library
           this.offset += acc.contents.length;
           this.debug("Transport recognized: " + acc.contents);
           let transport : string = acc.contents
@@ -206,6 +369,10 @@ export namespace netlang.parser {
           } else {
             this.debug(`Method found: "${exp.contents}"`);
             this.offset += exp.contents.length + 1; // +1 to account for .
+          }
+          if(!this.acceptableTransportMethod(<Transport>transport,<Method>exp.contents)){
+            this.reportError("Invalid method for transport");
+            return;
           }
           this.expect("open-paren");
           this.offset += 1;
@@ -226,12 +393,15 @@ export namespace netlang.parser {
             this.expect("double-quote");
           }
           this.offset += 1;
+
+          if(this.accept("comma").present){
+
           this.expect("close-paren");
           this.offset += 1;
           this.consumeIf("whitespace");
           if(this.accept("semicolon").present){
             this.offset += 1;
-            this.logic += `lib.${method}("${url}");\n`;
+            this.logic += `${lib_id}.${method}("${url}");\n`;
             return this.programBlock();
           }
           if(this.accept("=>").present){
@@ -240,9 +410,15 @@ export namespace netlang.parser {
             this.consumeIf("whitespace");
             let file_name: string = this.expect("filename").contents
             this.debug(`file_name: "${file_name}"`);
-            this.logic += `lib->stream_method_to(${this.cpp_method(transport,method)},"${url}","${file_name}");\n`;
+            // TODO: assoicate "lib" with the randomly generated library name above
+            this.logic += `${lib_id}->stream_method_to(${this.cpp_method(transport,method)},"${url}","${file_name}");\n`;
+            this.offset += file_name.length;
           }
+          this.dump();
+          this.expect("semicolon");
+          this.offset += 1;
           this.consumeIf("whitespace");
+          return this.programBlock();
         }
       } catch (e: any) {
         this.reportError(e);
@@ -296,7 +472,6 @@ export namespace netlang.parser {
       let res: ParseResult = { ok: false, issue: "", line: -1 };
 
       this.programBlock();
-      this.logic += `\nreturn 0;}\n`;
       this.debug(this.logic);
       return res;
     }
@@ -307,7 +482,14 @@ export namespace netlang.parser {
           out_file += ch;
         }
       }
+      this.logic = `int main(int argc,char** argv){\n`;
       await this.parse();
+      let includes: string = '';
+      for(const lib of this.includes){
+        includes += `#include ${lib}\n`
+      }
+      this.logic = `${includes}\n${this.logic}`;
+      this.logic += `\nreturn 0;}\n`;
       await NodeFS.writeFileSync('/tmp/netlang-0.cpp',this.logic);
       await NodeChildProcess.execSync(`g++ -I$PWD/cpp/ -I$PWD/cpp/boost-includes -std=c++20 /tmp/netlang-0.cpp -o '${out_file}'`);
       this.debug('done. look for /tmp/netlang.out');

@@ -1,0 +1,14 @@
+# Every minute run icmp echo request to all hosts on 192.168.1.* subnet
+# Store results in 'uptime' postgres table
+      
+%include ".env"
+crontab.run('* * * * *',[]() -> {
+  icmp.echo_request('192.168.1.*') |=> [pg.uptime]
+})
+
+# Generate password for user 'admin'
+# Host the table results of uptime at /api/v1/uptime
+# GET /api/v1/uptime HTTP/1.1
+[auth:basic](user: admin,pw: <generate>) -> {
+  https.host('0.0.0.0/api/v1/uptime',8080) <=| [pg.uptime]
+}

@@ -39,6 +39,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.netlang = void 0;
 var NodeFS = require("fs");
 var NodeChildProcess = require('child_process');
+var NodeCrytpo = require('crypto');
 var netlang;
 (function (netlang) {
     var parser;
@@ -49,7 +50,15 @@ var netlang;
                 this.file = file;
                 this.offset = 0;
                 this.line = 0;
-                this.logic = '#include <iostream>\n';
+                this.transportLibraries = [];
+                this.includes = [];
+                this.includes.push("<iostream>");
+                this.includes.push("\"transports/factory.hpp\"");
+                this.includes.push("<memory>");
+                this.logic = '';
+                this.userIncludes = [];
+                this.envImports = [];
+                this.requiresDbImport = false;
             }
             RecursiveDescentParser.prototype.readFile = function (name) {
                 return __awaiter(this, void 0, void 0, function () {
@@ -72,8 +81,8 @@ var netlang;
                 switch (sym) {
                     case "transport":
                         var match = this.buffer
-                            .substr(this.offset, 5)
-                            .match(/^(https|http|tcp|udp|icmp|arp)/);
+                            .substr(this.offset, String('websocket').length)
+                            .match(/^(https|http|http2|udp|tcp|arp|icmp|ssh|scp|sftp|ftp|websocket|crontab|arp)/);
                         if (match) {
                             return { present: true, contents: match[1] };
                         }
@@ -103,6 +112,22 @@ var netlang;
                             return { present: true, contents: '=>' };
                         }
                         break;
+                    case "%include":
+                        if (this.buffer.substr(this.offset, String('%include').length) === '%include') {
+                            return { present: true, contents: '%include' };
+                        }
+                        break;
+                    case "newline":
+                        if (this.buffer.substr(this.offset, 1) === '\n') {
+                            return { present: true, contents: '\n' };
+                        }
+                        break;
+                    case "whitespace":
+                        var matches = this.buffer.substr(this.offset).match(/^([\s]+)/);
+                        if (matches) {
+                            return { present: true, contents: matches[1] };
+                        }
+                        break;
                     default:
                         break;
                 }
@@ -122,7 +147,7 @@ var netlang;
                     case "method":
                         var matches = this.buffer
                             .substr(this.offset, String("options").length + 1)
-                            .match(/^.(get|put|post|delete|options)/);
+                            .match(/^.(run|knock|host|get|put|post|delete|options)/);
                         if (matches) {
                             return {
                                 present: true,
@@ -172,12 +197,20 @@ var netlang;
                         var ctr = void 0;
                         var file_name = '';
                         for (ctr = this.offset; is_file; ++ctr) {
-                            is_file = !!this.buffer[ctr].match(/[a-zA-Z0-9\.]/);
+                            is_file = !!this.buffer[ctr].match(/[\(\)_\/ \\a-zA-Z0-9\.]/);
                             if (is_file) {
                                 file_name += this.buffer[ctr];
                             }
                         }
                         return { present: file_name.length > 0, contents: file_name };
+                        break;
+                    case "whitespace":
+                        {
+                            var matches_1 = this.buffer.substr(this.offset).match(/^([\s]+)/);
+                            if (matches_1) {
+                                return { present: true, contents: matches_1[1] };
+                            }
+                        }
                         break;
                     default:
                         return exp;
@@ -188,23 +221,95 @@ var netlang;
             RecursiveDescentParser.prototype.reportError = function (msg) {
                 console.error("ERROR: ".concat(msg, " on line: ").concat(this.line));
             };
+            RecursiveDescentParser.prototype.getTransportLibrary = function (transport) {
+                for (var _i = 0, _a = this.transportLibraries; _i < _a.length; _i++) {
+                    var lib = _a[_i];
+                    if (lib.transport == transport) {
+                        return lib.name;
+                    }
+                }
+                var name = "lib_".concat(transport, "_").concat(this.randomAlpha(8));
+                this.logic += "std::unique_ptr<netlang::transports::".concat(transport, "::lib> ").concat(name, " = netlang::transports::").concat(transport, "::make();\n");
+                this.transportLibraries.push({
+                    transport: transport,
+                    name: name,
+                    line: this.line,
+                });
+                return name;
+            };
+            RecursiveDescentParser.prototype.randomAlpha = function (len) {
+                var str = '';
+                do {
+                    str += NodeCrytpo.randomBytes(16).toString('base64').replace(/[^a-zA-Z0-9]+/g, '');
+                } while (str.length < len);
+                return str.substr(0, len);
+            };
+            RecursiveDescentParser.prototype.acceptableTransportMethod = function (transport, method) {
+                if (['https', 'http', 'http2'].includes(transport) && [
+                    'get', 'post', 'put', 'patch', 'delete', 'options',
+                    'host'
+                ].includes(method)) {
+                    return true;
+                }
+                if (transport === "crontab" && !['run'].includes(method)) {
+                    return false;
+                }
+                if (transport === "icmp" && ![
+                    'echo_request', 'echo_reply',
+                ].includes(method)) {
+                    return false;
+                }
+                return true;
+            };
             RecursiveDescentParser.prototype.programBlock = function () {
                 try {
                     var acc = { present: false, contents: "" };
                     var exp = { present: false, contents: "" };
+                    if (this.accept("newline").present) {
+                        this.debug('found newline. consuming line');
+                        this.consumeLine();
+                        return this.programBlock();
+                    }
+                    acc = this.accept("whitespace");
+                    if (acc.present) {
+                        this.debug("found whitespace");
+                        this.offset += acc.contents.length;
+                        return this.programBlock();
+                    }
                     acc = this.accept("comment");
                     if (acc.present) {
                         console.debug("found comment. consuming line");
                         this.consumeLine();
                         return this.programBlock();
                     }
-                    acc = this.accept("transport");
+                    acc = this.accept("%include");
                     if (acc.present) {
-                        this.logic += "#include \"transports/".concat(acc.contents, ".hpp\"\n");
-                        this.logic += "#include \"transports/factory.hpp\"\n";
-                        this.logic += "#include <memory>\n";
-                        this.logic += "int main(int argc,char** argv){\n";
-                        this.logic += " std::unique_ptr<netlang::transports::".concat(acc.contents, "::lib> lib = netlang::transports::").concat(acc.contents, "::make();\n");
+                        this.debug('found %include');
+                        this.offset += String('%include').length;
+                        this.offset += this.expect("whitespace").contents.length;
+                        this.dump();
+                        var single_quote = this.accept("single-quote").present;
+                        if (!single_quote) {
+                            this.expect("double-quote");
+                        }
+                        this.offset += 1;
+                        var include = '';
+                        include = this.expect("filename").contents;
+                        this.userIncludes.push(include);
+                        this.offset += include.length;
+                        this.expect(single_quote ? "single-quote" : "double-quote");
+                        this.offset += 1;
+                        this.expect("newline");
+                        this.offset += 1;
+                        return this.programBlock();
+                    }
+                    acc = this.accept("transport");
+                    var lib_id = '';
+                    if (acc.present) {
+                        lib_id = this.getTransportLibrary(acc.contents);
+                        this.includes.push("\"transports/".concat(acc.contents, ".hpp\""));
+                        // TODO: change this to a randomized variable name and register it
+                        // as being associated with the specific transport library
                         this.offset += acc.contents.length;
                         this.debug("Transport recognized: " + acc.contents);
                         var transport = acc.contents;
@@ -217,6 +322,10 @@ var netlang;
                         else {
                             this.debug("Method found: \"".concat(exp.contents, "\""));
                             this.offset += exp.contents.length + 1; // +1 to account for .
+                        }
+                        if (!this.acceptableTransportMethod(transport, exp.contents)) {
+                            this.reportError("Invalid method for transport");
+                            return;
                         }
                         this.expect("open-paren");
                         this.offset += 1;
@@ -243,7 +352,7 @@ var netlang;
                         this.consumeIf("whitespace");
                         if (this.accept("semicolon").present) {
                             this.offset += 1;
-                            this.logic += "lib.".concat(method, "(\"").concat(url, "\");\n");
+                            this.logic += "".concat(lib_id, ".").concat(method, "(\"").concat(url, "\");\n");
                             return this.programBlock();
                         }
                         if (this.accept("=>").present) {
@@ -252,9 +361,15 @@ var netlang;
                             this.consumeIf("whitespace");
                             var file_name = this.expect("filename").contents;
                             this.debug("file_name: \"".concat(file_name, "\""));
-                            this.logic += "lib->stream_method_to(".concat(this.cpp_method(transport, method), ",\"").concat(url, "\",\"").concat(file_name, "\");\n");
+                            // TODO: assoicate "lib" with the randomly generated library name above
+                            this.logic += "".concat(lib_id, "->stream_method_to(").concat(this.cpp_method(transport, method), ",\"").concat(url, "\",\"").concat(file_name, "\");\n");
+                            this.offset += file_name.length;
                         }
+                        this.dump();
+                        this.expect("semicolon");
+                        this.offset += 1;
                         this.consumeIf("whitespace");
+                        return this.programBlock();
                     }
                 }
                 catch (e) {
@@ -311,7 +426,6 @@ var netlang;
                             case 2:
                                 res = { ok: false, issue: "", line: -1 };
                                 this.programBlock();
-                                this.logic += "\nreturn 0;}\n";
                                 this.debug(this.logic);
                                 return [2 /*return*/, res];
                         }
@@ -320,9 +434,9 @@ var netlang;
             };
             RecursiveDescentParser.prototype.generateProgram = function (requested_out_file) {
                 return __awaiter(this, void 0, void 0, function () {
-                    var out_file, _i, requested_out_file_1, ch;
-                    return __generator(this, function (_a) {
-                        switch (_a.label) {
+                    var out_file, _i, requested_out_file_1, ch, includes, _a, _b, lib;
+                    return __generator(this, function (_c) {
+                        switch (_c.label) {
                             case 0:
                                 out_file = '';
                                 for (_i = 0, requested_out_file_1 = requested_out_file; _i < requested_out_file_1.length; _i++) {
@@ -331,15 +445,23 @@ var netlang;
                                         out_file += ch;
                                     }
                                 }
+                                this.logic = "int main(int argc,char** argv){\n";
                                 return [4 /*yield*/, this.parse()];
                             case 1:
-                                _a.sent();
+                                _c.sent();
+                                includes = '';
+                                for (_a = 0, _b = this.includes; _a < _b.length; _a++) {
+                                    lib = _b[_a];
+                                    includes += "#include ".concat(lib, "\n");
+                                }
+                                this.logic = "".concat(includes, "\n").concat(this.logic);
+                                this.logic += "\nreturn 0;}\n";
                                 return [4 /*yield*/, NodeFS.writeFileSync('/tmp/netlang-0.cpp', this.logic)];
                             case 2:
-                                _a.sent();
+                                _c.sent();
                                 return [4 /*yield*/, NodeChildProcess.execSync("g++ -I$PWD/cpp/ -I$PWD/cpp/boost-includes -std=c++20 /tmp/netlang-0.cpp -o '".concat(out_file, "'"))];
                             case 3:
-                                _a.sent();
+                                _c.sent();
                                 this.debug('done. look for /tmp/netlang.out');
                                 return [2 /*return*/];
                         }

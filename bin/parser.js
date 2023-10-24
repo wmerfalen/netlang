@@ -96,7 +96,7 @@ var netlang;
                     case "transport":
                         var match = this.buffer
                             .substr(this.offset, String('websocket').length)
-                            .match(/^(https|http|http2|udp|tcp|arp|icmp|ssh|scp|sftp|ftp|websocket|crontab|arp)/);
+                            .match(/^(https|http|http2|udp|tcp|arp|icmp|ssh|scp|sftp|ftp|websocket|crontab|arp|job)/);
                         if (match) {
                             return { present: true, contents: match[1] };
                         }
@@ -166,7 +166,7 @@ var netlang;
                     case "method":
                         var matches = this.buffer
                             .substr(this.offset, String("options").length + 1)
-                            .match(/^.(run|knock|host|get|put|post|delete|options)/);
+                            .match(/^.(when|define|exec|protect|run|knock|host|get|put|post|delete|options)/);
                         if (matches) {
                             return {
                                 present: true,
@@ -265,17 +265,23 @@ var netlang;
             };
             RecursiveDescentParser.prototype.acceptableTransportMethod = function (transport, method) {
                 if (['https', 'http', 'http2'].includes(transport) && [
-                    'get', 'post', 'put', 'patch', 'delete', 'options',
-                    'host'
+                    'when', 'host', 'get', 'post', 'put', 'patch', 'delete', 'options',
+                    'protect',
                 ].includes(method)) {
                     return true;
                 }
                 if (transport === "crontab" && !['run'].includes(method)) {
                     return false;
                 }
+                if (transport === "job" && !['define',].includes(method)) {
+                    return false;
+                }
                 if (transport === "icmp" && ![
                     'echo_request', 'echo_reply',
                 ].includes(method)) {
+                    return false;
+                }
+                if (transport === 'ssh' && !['exec',].includes(method)) {
                     return false;
                 }
                 return true;
@@ -285,6 +291,8 @@ var netlang;
                  * THis is extremely one-dimensional and needs work:
                  * currently, it only accepts:
                  * []() -> {
+                 *   logic goes here
+                 *   logic goes here
                  *   logic goes here
                  * }
                  */

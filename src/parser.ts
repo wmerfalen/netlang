@@ -150,7 +150,7 @@ export namespace netlang.parser {
         case "transport":
           let match = this.buffer
             .substr(this.offset, String('websocket').length)
-            .match(/^(https|http|http2|udp|tcp|arp|icmp|ssh|scp|sftp|ftp|websocket|crontab|arp)/);
+            .match(/^(https|http|http2|udp|tcp|arp|icmp|ssh|scp|sftp|ftp|websocket|crontab|arp|job)/);
           if (match) {
             return { present: true, contents: match[1] };
           }
@@ -224,7 +224,7 @@ export namespace netlang.parser {
         case "method":
           let matches = this.buffer
             .substr(this.offset, String("options").length + 1)
-            .match(/^.(run|knock|host|get|put|post|delete|options)/);
+            .match(/^.(when|define|exec|protect|run|knock|host|get|put|post|delete|options)/);
           if (matches) {
             return {
               present: true,
@@ -322,16 +322,23 @@ export namespace netlang.parser {
     }
     acceptableTransportMethod(transport: Transport,method: Method) : boolean {
       if(['https','http','http2'].includes(transport) && [
-        'get','post','put','patch','delete','options',
-      'host'].includes(method)){
+        'when','host','get','post','put','patch','delete','options',
+      'protect',
+      ].includes(method)){
         return true;
       }
       if(transport === "crontab" && !['run'].includes(method)){
         return false;
       }
+      if(transport === "job" && !['define',].includes(method)){
+        return false;
+      }
       if(transport === "icmp" && ![
         'echo_request','echo_reply',
       ].includes(method)){
+        return false;
+      }
+      if(transport === 'ssh' && !['exec',].includes(method)){
         return false;
       }
       return true;
@@ -400,7 +407,6 @@ export namespace netlang.parser {
           type: "lambda",
           contents: lambda,
         });
-        this.dump();
         let tmp: Array<Parameter> = this.parameters();
         if(tmp.length){
           for(const t of tmp){
@@ -508,7 +514,6 @@ export namespace netlang.parser {
           this.debug('found %include');
           this.offset += String('%include').length;
           this.offset += this.expect("whitespace").contents.length;
-          //this.dump();
           let single_quote: boolean = this.accept("single-quote").present;
           if(!single_quote){
             this.expect("double-quote");
@@ -574,7 +579,6 @@ export namespace netlang.parser {
             this.logic += `,"${file_name}");\n`;
             this.offset += file_name.length;
           }
-          this.dump();
           this.expect(";");
           this.offset += 1;
           this.consumeIf("whitespace");

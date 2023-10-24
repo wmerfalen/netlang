@@ -12,6 +12,8 @@ https.host(
   '/api/v1/uptime',8080
 ) <=| [pg.uptime]
 
-https.when('post','/api/v1/backup-db','singleton');
-
-https.protect('/auth/') <=| [pg.session]
+job.define('backup-db',[]() -> {
+  ssh.exec('user@dev-server','~/bin/backup-db') |=> [pg.jobs]
+})
+https.protect('/api/v1/backup-db') <=| [pg.admin_sessions]
+https.when('post','/api/v1/backup-db','singleton','backup-db')

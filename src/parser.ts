@@ -4,7 +4,7 @@ const NodeChildProcess = require('child_process');
 const NodeCrytpo = require('crypto');
 
 export namespace netlang.parser {
-  type Method = Transport.netlang.Method | "run" | "host" | "echo_reply" | "echo_request";
+  type Method = Transport.netlang.Method | "run" | "host" | "echo_reply" | "echo_request" | "define" | "when" | "protect";
   type File = Transport.netlang.File;
   export interface ParseResult {
     ok: boolean;
@@ -25,6 +25,7 @@ export namespace netlang.parser {
     | "ftp"
     | "websocket"
     | "crontab"
+    | "job"
   export type SymToken =
     | "=>"
     | "=>>"
@@ -340,6 +341,8 @@ export namespace netlang.parser {
        * THis is extremely one-dimensional and needs work:
        * currently, it only accepts:
        * []() -> {
+       *   logic goes here
+       *   logic goes here
        *   logic goes here
        * }
        */

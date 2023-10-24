@@ -79,6 +79,20 @@ var netlang;
             };
             RecursiveDescentParser.prototype.accept = function (sym) {
                 switch (sym) {
+                    case "numeric": {
+                        var match_1 = this.buffer.substr(this.offset).match(/^([0-9]+)/);
+                        if (match_1) {
+                            return { present: true, contents: match_1[1] };
+                        }
+                        break;
+                    }
+                    case "lambda-capture": {
+                        var match_2 = this.buffer.substr(this.offset).match(/^(\[[^\]]*\])/);
+                        if (match_2) {
+                            return { present: true, contents: match_2[1] };
+                        }
+                        break;
+                    }
                     case "transport":
                         var match = this.buffer
                             .substr(this.offset, String('websocket').length)
@@ -102,7 +116,12 @@ var netlang;
                             return { present: true, contents: "\"" };
                         }
                         break;
-                    case "semicolon":
+                    case ",":
+                        if (this.buffer[this.offset] === ',') {
+                            return { present: true, contents: ',' };
+                        }
+                        break;
+                    case ";":
                         if (this.buffer[this.offset] === ';') {
                             return { present: true, contents: ';' };
                         }
@@ -155,7 +174,7 @@ var netlang;
                             };
                         }
                         break;
-                    case "close-paren":
+                    case ")":
                         if (this.buffer[this.offset] === ")") {
                             return {
                                 present: true,
@@ -163,7 +182,7 @@ var netlang;
                             };
                         }
                         break;
-                    case "open-paren":
+                    case "(":
                         if (this.buffer[this.offset] === "(") {
                             return {
                                 present: true,
@@ -261,6 +280,153 @@ var netlang;
                 }
                 return true;
             };
+            RecursiveDescentParser.prototype.parseLambda = function () {
+                /**
+                 * THis is extremely one-dimensional and needs work:
+                 * currently, it only accepts:
+                 * []() -> {
+                 *   logic goes here
+                 * }
+                 */
+                var l = '';
+                this.expect("[");
+                this.offset += 1;
+                this.expect("]");
+                this.offset += 1;
+                this.expect("(");
+                this.offset += 1;
+                this.expect(")");
+                this.offset += 1;
+                this.consumeIf("whitespace");
+                this.expect("->");
+                this.offset += 2;
+                this.consumeIf("whitespace");
+                this.expect("{");
+                this.consumeIf("whitespace");
+                for (; this.buffer.length > this.offset && this.buffer[this.offset] != '}'; this.offset++) {
+                    l += this.buffer[this.offset];
+                }
+                this.expect("}");
+                this.offset += 1;
+                return l;
+            };
+            RecursiveDescentParser.prototype.parseNumeric = function () {
+                var n = '';
+                for (; this.buffer.length > this.offset && !isNaN(parseInt(this.buffer[this.offset], 10)); this.offset++) {
+                    n += this.buffer[this.offset];
+                }
+                return n;
+            };
+            RecursiveDescentParser.prototype.parameters = function () {
+                var params = [];
+                var acc = { present: false, contents: "" };
+                var exp = { present: false, contents: "" };
+                /**
+                 * Start parsing a parameter. Note: a parameter can be either a string
+                 * literal, or a lambda
+                 */
+                this.consumeIf("whitespace");
+                this.consumeIf(",");
+                /**
+                 * If the user simply decides to not pass parameters...
+                 */
+                if (this.accept(")").present) {
+                    return params;
+                }
+                acc = this.accept("lambda-capture");
+                if (acc.present) {
+                    this.debug('lambda capture recognized');
+                    var lambda = this.parseLambda();
+                    this.debug("lambda: \"".concat(lambda, "\""));
+                    params.push({
+                        type: "lambda",
+                        contents: lambda,
+                    });
+                    this.dump();
+                    var tmp = this.parameters();
+                    if (tmp.length) {
+                        for (var _i = 0, tmp_1 = tmp; _i < tmp_1.length; _i++) {
+                            var t = tmp_1[_i];
+                            params.push(t);
+                        }
+                    }
+                    return params;
+                }
+                var single_quote = false;
+                var double_quote = false;
+                acc = this.accept("single-quote");
+                var acDoubleQuote = this.accept("double-quote");
+                var acNumeric = this.accept("numeric");
+                if (acc.present) {
+                    single_quote = true;
+                    this.offset += 1;
+                    var url = this.parseUrl(single_quote);
+                    this.expect("single-quote");
+                    this.offset += 1;
+                    params.push({
+                        type: "string",
+                        contents: url,
+                    });
+                    this.debug("single quote url: \"".concat(url, "\""));
+                }
+                else if (acDoubleQuote.present) {
+                    var url = this.parseUrl(single_quote);
+                    this.expect("double-quote");
+                    this.offset += 1;
+                    params.push({
+                        type: "string",
+                        contents: url,
+                    });
+                }
+                else if (acNumeric.present) {
+                    params.push({
+                        type: "number",
+                        contents: this.parseNumeric(),
+                    });
+                }
+                if (this.accept(",").present) {
+                    this.offset += 1;
+                    var tmp = this.parameters();
+                    if (tmp.length) {
+                        for (var _a = 0, tmp_2 = tmp; _a < tmp_2.length; _a++) {
+                            var t = tmp_2[_a];
+                            params.push(t);
+                        }
+                    }
+                }
+                return params;
+            };
+            RecursiveDescentParser.prototype.warn = function (msg) {
+                console.warn("WARNING: ".concat(msg));
+            };
+            RecursiveDescentParser.prototype.makeLogicParams = function (params) {
+                var prog = '';
+                var ctr = 0;
+                var PARAM_LEN = params.length;
+                for (var _i = 0, params_1 = params; _i < params_1.length; _i++) {
+                    var param = params_1[_i];
+                    switch (param.type) {
+                        case "string":
+                            prog += "\"".concat(param.contents, "\"");
+                            break;
+                        case "lambda":
+                            prog += "[]() -> void {";
+                            prog += param.contents;
+                            prog += "}";
+                            break;
+                        case "number":
+                            prog += param.contents;
+                            break;
+                        default:
+                            this.warn("Unrecognized param type: '".concat(param.type, "'"));
+                            break;
+                    }
+                    if (++ctr < PARAM_LEN) {
+                        prog += ",";
+                    }
+                }
+                return prog;
+            };
             RecursiveDescentParser.prototype.programBlock = function () {
                 try {
                     var acc = { present: false, contents: "" };
@@ -287,7 +453,7 @@ var netlang;
                         this.debug('found %include');
                         this.offset += String('%include').length;
                         this.offset += this.expect("whitespace").contents.length;
-                        this.dump();
+                        //this.dump();
                         var single_quote = this.accept("single-quote").present;
                         if (!single_quote) {
                             this.expect("double-quote");
@@ -327,32 +493,17 @@ var netlang;
                             this.reportError("Invalid method for transport");
                             return;
                         }
-                        this.expect("open-paren");
+                        this.expect("(");
                         this.offset += 1;
-                        var single_quote = false;
-                        acc = this.accept("single-quote");
-                        if (!acc.present) {
-                            this.expect("double-quote");
-                        }
-                        if (acc.present) {
-                            single_quote = true;
-                        }
-                        this.offset += 1;
-                        var url = this.parseUrl(single_quote);
-                        this.debug("url: \"".concat(url, "\""));
-                        if (single_quote) {
-                            this.expect("single-quote");
-                        }
-                        else {
-                            this.expect("double-quote");
-                        }
-                        this.offset += 1;
-                        this.expect("close-paren");
+                        var params = this.parameters();
+                        this.expect(")");
                         this.offset += 1;
                         this.consumeIf("whitespace");
-                        if (this.accept("semicolon").present) {
+                        if (this.accept(";").present) {
                             this.offset += 1;
-                            this.logic += "".concat(lib_id, ".").concat(method, "(\"").concat(url, "\");\n");
+                            this.logic += "".concat(lib_id, ".").concat(method, "(");
+                            this.logic += this.makeLogicParams(params);
+                            this.logic += ");\n";
                             return this.programBlock();
                         }
                         if (this.accept("=>").present) {
@@ -362,11 +513,13 @@ var netlang;
                             var file_name = this.expect("filename").contents;
                             this.debug("file_name: \"".concat(file_name, "\""));
                             // TODO: assoicate "lib" with the randomly generated library name above
-                            this.logic += "".concat(lib_id, "->stream_method_to(").concat(this.cpp_method(transport, method), ",\"").concat(url, "\",\"").concat(file_name, "\");\n");
+                            this.logic += "".concat(lib_id, "->stream_method_to(").concat(this.cpp_method(transport, method), ",");
+                            this.logic += this.makeLogicParams(params);
+                            this.logic += ",\"".concat(file_name, "\");\n");
                             this.offset += file_name.length;
                         }
                         this.dump();
-                        this.expect("semicolon");
+                        this.expect(";");
                         this.offset += 1;
                         this.consumeIf("whitespace");
                         return this.programBlock();
@@ -385,6 +538,10 @@ var netlang;
                     case "whitespace":
                         for (; this.buffer.length > this.offset && ["\n", "\t", " "].includes(this.buffer[this.offset]);) {
                             this.offset += 1;
+                        }
+                        break;
+                    case ",":
+                        for (; this.buffer.length > this.offset && this.buffer[this.offset] === ','; this.offset += 1) {
                         }
                         break;
                     default:

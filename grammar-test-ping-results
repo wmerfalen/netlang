@@ -4,11 +4,14 @@
 %include ".env"
 crontab.run('* * * * *',[]() -> {
   icmp.echo_request('192.168.1.*') |=> [pg.uptime]
+  icmp.echo_request('192.168.0.*') |=> [pg.uptime]
 })
 
-# Generate password for user 'admin'
 # Host the table results of uptime at /api/v1/uptime
-# GET /api/v1/uptime HTTP/1.1
-[auth:basic](user: admin,pw: <generate>) -> {
-  https.host('0.0.0.0/api/v1/uptime',8080) <=| [pg.uptime]
-}
+https.host(
+  '/api/v1/uptime',8080
+) <=| [pg.uptime]
+
+https.when('post','/api/v1/backup-db','singleton');
+
+https.protect('/auth/') <=| [pg.session]

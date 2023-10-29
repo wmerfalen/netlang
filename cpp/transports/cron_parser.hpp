@@ -1,3 +1,5 @@
+#ifndef __NETLANG_TRANSPORTS_CRON_PARSER_HEADER__
+#define __NETLANG_TRANSPORTS_CRON_PARSER_HEADER__
 #include <vector>
 #include <string>
 #include <iterator>
@@ -197,3 +199,4 @@ namespace sched {
 
 
 } // namespace sched
+#endif

@@ -436,12 +436,9 @@ export namespace netlang.parser {
       }
       acc = this.accept("lambda-capture");
       if (acc.present) {
-        this.debug("lambda capture recognized");
-        let lambda: string = this.parseLambda();
-        this.debug(`lambda: "${lambda}"`);
         params.push({
           type: "lambda",
-          contents: lambda,
+          contents: this.parseLambda(),
         });
         let tmp: Array<Parameter> = this.parameters();
         if (tmp.length) {
@@ -466,7 +463,6 @@ export namespace netlang.parser {
           type: "string",
           contents: url,
         });
-        this.debug(`single quote url: "${url}"`);
       } else if (acDoubleQuote.present) {
         let url: string = this.parseUrl(single_quote);
         this.expect("double-quote");
@@ -524,30 +520,32 @@ export namespace netlang.parser {
 
       return prog;
     }
+    translateMethod(transport: string, method: string) : string {
+      if(transport === 'job' && method === 'define'){
+        return 'job_define';
+      }
+      return method;
+    }
     programBlock(): void {
       try {
         let acc: Accepted = { present: false, contents: "" };
         let exp: Expected = { present: false, contents: "" };
         if (this.accept("newline").present) {
-          this.debug("found newline. consuming line");
           this.consumeLine();
           return this.programBlock();
         }
         acc = this.accept("whitespace");
         if (acc.present) {
-          this.debug("found whitespace");
           this.offset += acc.contents.length;
           return this.programBlock();
         }
         acc = this.accept("comment");
         if (acc.present) {
-          console.debug("found comment. consuming line");
           this.consumeLine();
           return this.programBlock();
         }
         acc = this.accept("%embed");
         if (acc.present) {
-          this.debug("found %embed");
           this.offset += String("%embed").length;
           this.offset += this.expect("whitespace").contents.length;
           let single_quote: boolean = this.accept("single-quote").present;
@@ -567,7 +565,6 @@ export namespace netlang.parser {
         }
         acc = this.accept("%include");
         if (acc.present) {
-          this.debug("found %include");
           this.offset += String("%include").length;
           this.offset += this.expect("whitespace").contents.length;
           let single_quote: boolean = this.accept("single-quote").present;
@@ -590,14 +587,10 @@ export namespace netlang.parser {
         if (acc.present) {
           lib_id = this.getTransportLibrary(<Transport>acc.contents);
           this.includes.push(`"transports/${acc.contents}.hpp"`);
-          // TODO: change this to a randomized variable name and register it
-          // as being associated with the specific transport library
           this.offset += acc.contents.length;
-          this.debug("Transport recognized: " + acc.contents);
           let transport: string = acc.contents;
           exp = this.expect("method");
           let method: string = exp.contents;
-          this.debug(`Method found: "${exp.contents}"`);
           this.offset += exp.contents.length + 1; // +1 to account for .
           if (
             !this.acceptableTransportMethod(
@@ -615,44 +608,39 @@ export namespace netlang.parser {
           this.expect(")");
           this.offset += 1;
 
-          this.logic += `${lib_id}->${method}(`;
-          let n : number = 0;
-          for(const p of params) {
-            switch (p.type) {
-              case "lambda":
-                this.logic += "[]() -> {";
-                this.logic += p.contents;
-                this.logic += '}';
-                break;
-              case "string":
-                this.logic += `"${p.contents}"`; //TODO escape
-                break;
-              case "number":
-                this.logic += p.contents; // TODO: sanitize
-                break;
-              default:
-                this.logic += p.contents;
-                break;
-            }
-            if(++n < params.length){
-              this.logic += ',';
-            }
-          }
-          this.consumeIf("whitespace");
-          if (this.accept(";").present) {
+          if (this.accept(";").present || this.accept("newline").present){
             this.offset += 1;
-            this.logic += `${lib_id}.${method}(`;
-            this.logic += this.makeLogicParams(params);
-            this.logic += `);\n`;
+            this.logic += `${lib_id}->${this.translateMethod(transport,method)}(`;
+            let n: number = 0;
+            for (const p of params) {
+              switch (p.type) {
+                case "lambda":
+                  this.logic += "[]() -> {";
+                  this.logic += p.contents;
+                  this.logic += "}";
+                  break;
+                case "string":
+                  this.logic += `"${p.contents}"`; //TODO escape
+                  break;
+                case "number":
+                  this.logic += p.contents; // TODO: sanitize
+                  break;
+                default:
+                  this.logic += p.contents;
+                  break;
+              }
+              if (++n < params.length) {
+                this.logic += ",";
+              }
+            }
+            this.logic += ");\n";
             return this.programBlock();
           }
+          this.consumeIf("whitespace");
           if (this.accept("=>").present) {
-            this.debug("found =>");
             this.offset += 2;
             this.consumeIf("whitespace");
             let file_name: string = this.expect("filename").contents;
-            this.debug(`file_name: "${file_name}"`);
-            // TODO: assoicate "lib" with the randomly generated library name above
             this.logic += `${lib_id}->stream_method_to(${this.cpp_method(
               transport,
               method
@@ -749,7 +737,7 @@ export namespace netlang.parser {
       let res: ParseResult = { ok: false, issue: "", line: -1 };
 
       this.programBlock();
-      this.debug(this.logic);
+      //this.debug(this.logic);
       return res;
     }
     async generateProgram(requested_out_file: string) {
@@ -775,7 +763,6 @@ export namespace netlang.parser {
       this.userEmbeds = this.unique<string>(this.userEmbeds);
       for (const file of this.userEmbeds) {
         let embeds: Array<[string, string]> = await this.tokenizeEmbeds(file);
-        this.debug({ embeds });
         for (const pair of embeds) {
           userEmbeds += `static constexpr const char* netlang_embed_${pair[0]} = "${pair[1]}";\n`;
         }

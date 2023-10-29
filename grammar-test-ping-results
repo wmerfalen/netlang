@@ -5,17 +5,17 @@
 
 # Lambdas aren't fully supported yet.
 crontab.run('* * * * *',[]() -> {
-  icmp.echo_request('192.168.1.*');
-  icmp.echo_request('192.168.0.*');
+  icmp.echo_request('192.168.1.*') |=> [pg.uptime];
+  icmp.echo_request('192.168.0.*') |=> [pg.uptime];
 })
 
 # Host the table results of uptime at /api/v1/uptime
-https.host(
-  '/api/v1/uptime',8080
-) <=| [pg.uptime]
+#https.host(
+#  '/api/v1/uptime',8080
+#) <=| [pg.uptime]
 
 job.define('backup-db',[]() -> {
   ssh.exec('user@dev-server','~/bin/backup-db') |=> [pg.jobs]
 })
-https.protect('/api/v1/backup-db') <=| [pg.admin_sessions]
+#https.protect('/api/v1/backup-db') <=| [pg.admin_sessions]
 https.when('post','/api/v1/backup-db','singleton','backup-db')

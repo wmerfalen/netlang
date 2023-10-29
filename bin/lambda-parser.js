@@ -72,6 +72,11 @@ var LambdaParser = /** @class */ (function () {
                     return { present: true, contents: "=>" };
                 }
                 break;
+            case "|=>":
+                if (this.buffer.substr(this.offset, 3) === "|=>") {
+                    return { present: true, contents: "|=>" };
+                }
+                break;
             case "%include":
                 if (this.buffer.substr(this.offset, String("%include").length) ===
                     "%include") {
@@ -109,8 +114,23 @@ var LambdaParser = /** @class */ (function () {
             present: false,
             contents: "",
         };
-        this.debug("Expecting: '".concat(sym, "'"));
         switch (sym) {
+            case "db-table": // Purposeful fall-through
+            case "db-prefix": {
+                var ctr_1 = this.offset;
+                var contents = '';
+                for (; this.buffer.length > ctr_1; ctr_1++) {
+                    if (this.buffer[ctr_1].match(/[a-z0-9_]+/i)) {
+                        contents += this.buffer[ctr_1];
+                        continue;
+                    }
+                    break;
+                }
+                if (contents.length > 0) {
+                    return { present: true, contents: contents, };
+                }
+                break;
+            }
             case "method":
                 var matches = this.buffer
                     .substr(this.offset, String("echo_request").length + 1)
@@ -123,18 +143,12 @@ var LambdaParser = /** @class */ (function () {
                 }
                 break;
             case ")":
-                if (this.buffer[this.offset] === ")") {
-                    return {
-                        present: true,
-                        contents: ")",
-                    };
-                }
-                break;
+            case ".":
             case "(":
-                if (this.buffer[this.offset] === "(") {
+                if (this.buffer[this.offset] === sym) {
                     return {
                         present: true,
-                        contents: "(",
+                        contents: sym,
                     };
                 }
                 break;
@@ -157,6 +171,11 @@ var LambdaParser = /** @class */ (function () {
             case "=>":
                 if (this.buffer.substr(this.offset, 2) == "=>") {
                     return { present: true, contents: "=>" };
+                }
+                break;
+            case "|=>":
+                if (this.buffer.substr(this.offset, 3) == "|=>") {
+                    return { present: true, contents: "|=>" };
                 }
                 break;
             case "filename":
@@ -182,7 +201,6 @@ var LambdaParser = /** @class */ (function () {
             default:
                 return exp;
         }
-        this.dump();
         throw "Expected ".concat(sym);
         return exp;
     };
@@ -194,7 +212,7 @@ var LambdaParser = /** @class */ (function () {
             }
         }
         var name = "lib_".concat(transport, "_").concat(this.randomAlpha(8));
-        this.logic.push("std::unique_ptr<netlang::transports::".concat(transport, "::lib> ").concat(name, " = netlang::transports::").concat(transport, "::make();\n"));
+        this.logic.push("auto ".concat(name, " = netlang::transports::").concat(transport, "::make();\n"));
         this.transportLibraries.push({
             transport: transport,
             name: name,
@@ -272,20 +290,6 @@ var LambdaParser = /** @class */ (function () {
         acc = this.accept("lambda-capture");
         if (acc.present) {
             throw "Lambdas cannot be nested";
-            //this.debug("lambda capture recognized");
-            //let lambda: string = this.parseLambda();
-            //this.debug(`lambda: "${lambda}"`);
-            //params.push({
-            //  type: "lambda",
-            //  contents: lambda,
-            //});
-            //let tmp: Array<Parameter> = this.parameters();
-            //if (tmp.length) {
-            //  for (const t of tmp) {
-            //    params.push(t);
-            //  }
-            //}
-            //return params;
         }
         var single_quote = false;
         var double_quote = false;
@@ -302,7 +306,6 @@ var LambdaParser = /** @class */ (function () {
                 type: "string",
                 contents: url,
             });
-            this.debug("single quote url: \"".concat(url, "\""));
         }
         else if (acDoubleQuote.present) {
             var url = this.parseUrl(single_quote);
@@ -380,7 +383,6 @@ var LambdaParser = /** @class */ (function () {
             lib_id = this.getTransportLibrary(acc.contents);
             this.includes.push("\"transports/".concat(acc.contents, ".hpp\""));
             this.offset += acc.contents.length;
-            this.debug("Transport recognized: " + acc.contents);
             var transport = acc.contents;
             exp = this.expect("method");
             var method = exp.contents;
@@ -389,7 +391,6 @@ var LambdaParser = /** @class */ (function () {
                 return;
             }
             else {
-                this.debug("Method found: \"".concat(exp.contents, "\""));
                 this.offset += exp.contents.length + 1; // +1 to account for .
             }
             if (!this.acceptableTransportMethod(transport, exp.contents)) {
@@ -402,25 +403,43 @@ var LambdaParser = /** @class */ (function () {
             this.expect(")");
             this.offset += 1;
             this.consumeIf("whitespace");
+            if (this.accept("|=>").present) {
+                this.offset += 3;
+                this.consumeIf("whitespace");
+                this.expect("[");
+                this.offset += 1;
+                var db = this.expect("db-prefix").contents;
+                this.offset += db.length;
+                this.expect(".");
+                this.offset += 1;
+                var table = this.expect("db-table").contents;
+                this.offset += table.length;
+                params.push({
+                    type: 'string',
+                    contents: db,
+                });
+                params.push({
+                    type: 'string',
+                    contents: table,
+                });
+                this.expect("]");
+                this.offset += 1;
+            }
             if (this.accept(";").present) {
                 this.offset += 1;
                 this.logic.push("".concat(lib_id, ".").concat(method, "(") + this.makeLogicParams(params) + ");\n");
                 return this.programBlock();
             }
             if (this.accept("=>").present) {
-                this.debug("found =>");
                 this.offset += 2;
                 this.consumeIf("whitespace");
                 var file_name = this.expect("filename").contents;
-                this.debug("file_name: \"".concat(file_name, "\""));
-                // TODO: assoicate "lib" with the randomly generated library name above
                 this.logic.push("".concat(lib_id, "->stream_method_to(").concat(this.cpp_method(transport, method), ",") +
                     this.makeLogicParams(params) +
                     ",\"".concat(file_name, "\");\n"));
                 this.offset += file_name.length;
             }
             if (this.accept(")").present) {
-                this.debug("found end of transport.method");
                 this.offset += 1;
             }
             this.expect(";");

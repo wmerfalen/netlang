@@ -35,6 +35,7 @@ type Transport =
   | "crontab"
   | "job";
 export type SymToken =
+  | "."
   | "=>"
   | "=>>"
   | "|=>"
@@ -55,6 +56,8 @@ export type SymToken =
   | "crontab-domonth"
   | "crontab-month"
   | "crontab-doweek"
+  | "db-prefix"
+  | "db-table"
   | "double-quote"
   | "%embed"
   | "file"
@@ -184,6 +187,11 @@ export class LambdaParser {
           return { present: true, contents: "=>" };
         }
         break;
+      case "|=>":
+        if (this.buffer.substr(this.offset, 3) === "|=>") {
+          return { present: true, contents: "|=>" };
+        }
+        break;
       case "%include":
         if (
           this.buffer.substr(this.offset, String("%include").length) ===
@@ -229,8 +237,23 @@ export class LambdaParser {
       present: false,
       contents: "",
     };
-    this.debug(`Expecting: '${sym}'`);
     switch (sym) {
+      case "db-table": // Purposeful fall-through
+      case "db-prefix":{
+        let ctr: number = this.offset;
+        let contents : string = '';
+        for(; this.buffer.length > ctr; ctr++){
+          if(this.buffer[ctr].match(/[a-z0-9_]+/i)){
+            contents += this.buffer[ctr];
+            continue;
+          }
+          break;
+        }
+        if(contents.length > 0){
+          return {present: true,contents,};
+        }
+        break;
+      }
       case "method":
         let matches = this.buffer
           .substr(this.offset, String("echo_request").length + 1)
@@ -245,18 +268,12 @@ export class LambdaParser {
         }
         break;
       case ")":
-        if (this.buffer[this.offset] === ")") {
-          return {
-            present: true,
-            contents: ")",
-          };
-        }
-        break;
+      case ".":
       case "(":
-        if (this.buffer[this.offset] === "(") {
+        if (this.buffer[this.offset] === sym) {
           return {
             present: true,
-            contents: "(",
+            contents: sym,
           };
         }
         break;
@@ -279,6 +296,11 @@ export class LambdaParser {
       case "=>":
         if (this.buffer.substr(this.offset, 2) == "=>") {
           return { present: true, contents: "=>" };
+        }
+        break;
+      case "|=>":
+        if (this.buffer.substr(this.offset, 3) == "|=>") {
+          return { present: true, contents: "|=>" };
         }
         break;
       case "filename":
@@ -304,7 +326,6 @@ export class LambdaParser {
       default:
         return exp;
     }
-    this.dump();
     throw `Expected ${sym}`;
     return exp;
   }
@@ -403,20 +424,6 @@ export class LambdaParser {
     acc = this.accept("lambda-capture");
     if (acc.present) {
       throw "Lambdas cannot be nested";
-      //this.debug("lambda capture recognized");
-      //let lambda: string = this.parseLambda();
-      //this.debug(`lambda: "${lambda}"`);
-      //params.push({
-      //  type: "lambda",
-      //  contents: lambda,
-      //});
-      //let tmp: Array<Parameter> = this.parameters();
-      //if (tmp.length) {
-      //  for (const t of tmp) {
-      //    params.push(t);
-      //  }
-      //}
-      //return params;
     }
     let single_quote: boolean = false;
     let double_quote: boolean = false;
@@ -433,7 +440,6 @@ export class LambdaParser {
         type: "string",
         contents: url,
       });
-      this.debug(`single quote url: "${url}"`);
     } else if (acDoubleQuote.present) {
       let url: string = this.parseUrl(single_quote);
       this.expect("double-quote");
@@ -509,7 +515,6 @@ export class LambdaParser {
       lib_id = this.getTransportLibrary(<Transport>acc.contents);
       this.includes.push(`"transports/${acc.contents}.hpp"`);
       this.offset += acc.contents.length;
-      this.debug("Transport recognized: " + acc.contents);
       let transport: string = acc.contents;
       exp = this.expect("method");
       let method: string = exp.contents;
@@ -517,7 +522,6 @@ export class LambdaParser {
         throw "Expected method";
         return;
       } else {
-        this.debug(`Method found: "${exp.contents}"`);
         this.offset += exp.contents.length + 1; // +1 to account for .
       }
       if (
@@ -537,6 +541,28 @@ export class LambdaParser {
       this.expect(")");
       this.offset += 1;
       this.consumeIf("whitespace");
+      if(this.accept("|=>").present){
+        this.offset += 3;
+        this.consumeIf("whitespace");
+        this.expect("[");
+        this.offset += 1;
+        const db : string = this.expect("db-prefix").contents;
+        this.offset += db.length;
+        this.expect(".");
+        this.offset += 1;
+        const table : string = this.expect("db-table").contents;
+        this.offset += table.length;
+        params.push({
+          type: 'string',
+          contents: db,
+        });
+        params.push({
+          type: 'string',
+          contents: table,
+        });
+        this.expect("]");
+        this.offset += 1;
+      }
       if (this.accept(";").present) {
         this.offset += 1;
         this.logic.push(
@@ -545,12 +571,9 @@ export class LambdaParser {
         return this.programBlock();
       }
       if (this.accept("=>").present) {
-        this.debug("found =>");
         this.offset += 2;
         this.consumeIf("whitespace");
         let file_name: string = this.expect("filename").contents;
-        this.debug(`file_name: "${file_name}"`);
-        // TODO: assoicate "lib" with the randomly generated library name above
         this.logic.push(
           `${lib_id}->stream_method_to(${this.cpp_method(transport, method)},` +
             this.makeLogicParams(params) +
@@ -559,7 +582,6 @@ export class LambdaParser {
         this.offset += file_name.length;
       }
       if (this.accept(")").present) {
-        this.debug("found end of transport.method");
         this.offset += 1;
       }
       this.expect(";");

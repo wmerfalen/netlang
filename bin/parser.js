@@ -263,7 +263,7 @@ var netlang;
                     }
                 }
                 var name = "lib_".concat(transport, "_").concat(this.randomAlpha(8));
-                this.logic += "std::unique_ptr<netlang::transports::".concat(transport, "::lib> ").concat(name, " = netlang::transports::").concat(transport, "::make();\n");
+                this.logic += "auto ".concat(name, " = netlang::transports::").concat(transport, "::make();\n");
                 this.transportLibraries.push({
                     transport: transport,
                     name: name,
@@ -354,12 +354,9 @@ var netlang;
                 }
                 acc = this.accept("lambda-capture");
                 if (acc.present) {
-                    this.debug("lambda capture recognized");
-                    var lambda = this.parseLambda();
-                    this.debug("lambda: \"".concat(lambda, "\""));
                     params.push({
                         type: "lambda",
-                        contents: lambda,
+                        contents: this.parseLambda(),
                     });
                     var tmp = this.parameters();
                     if (tmp.length) {
@@ -385,7 +382,6 @@ var netlang;
                         type: "string",
                         contents: url,
                     });
-                    this.debug("single quote url: \"".concat(url, "\""));
                 }
                 else if (acDoubleQuote.present) {
                     var url = this.parseUrl(single_quote);
@@ -445,30 +441,32 @@ var netlang;
                 }
                 return prog;
             };
+            RecursiveDescentParser.prototype.translateMethod = function (transport, method) {
+                if (transport === 'job' && method === 'define') {
+                    return 'job_define';
+                }
+                return method;
+            };
             RecursiveDescentParser.prototype.programBlock = function () {
                 try {
                     var acc = { present: false, contents: "" };
                     var exp = { present: false, contents: "" };
                     if (this.accept("newline").present) {
-                        this.debug("found newline. consuming line");
                         this.consumeLine();
                         return this.programBlock();
                     }
                     acc = this.accept("whitespace");
                     if (acc.present) {
-                        this.debug("found whitespace");
                         this.offset += acc.contents.length;
                         return this.programBlock();
                     }
                     acc = this.accept("comment");
                     if (acc.present) {
-                        console.debug("found comment. consuming line");
                         this.consumeLine();
                         return this.programBlock();
                     }
                     acc = this.accept("%embed");
                     if (acc.present) {
-                        this.debug("found %embed");
                         this.offset += String("%embed").length;
                         this.offset += this.expect("whitespace").contents.length;
                         var single_quote = this.accept("single-quote").present;
@@ -488,7 +486,6 @@ var netlang;
                     }
                     acc = this.accept("%include");
                     if (acc.present) {
-                        this.debug("found %include");
                         this.offset += String("%include").length;
                         this.offset += this.expect("whitespace").contents.length;
                         var single_quote = this.accept("single-quote").present;
@@ -511,14 +508,10 @@ var netlang;
                     if (acc.present) {
                         lib_id = this.getTransportLibrary(acc.contents);
                         this.includes.push("\"transports/".concat(acc.contents, ".hpp\""));
-                        // TODO: change this to a randomized variable name and register it
-                        // as being associated with the specific transport library
                         this.offset += acc.contents.length;
-                        this.debug("Transport recognized: " + acc.contents);
                         var transport = acc.contents;
                         exp = this.expect("method");
                         var method = exp.contents;
-                        this.debug("Method found: \"".concat(exp.contents, "\""));
                         this.offset += exp.contents.length + 1; // +1 to account for .
                         if (!this.acceptableTransportMethod(transport, exp.contents)) {
                             this.reportError("Invalid method for transport");
@@ -529,45 +522,40 @@ var netlang;
                         var params = this.parameters();
                         this.expect(")");
                         this.offset += 1;
-                        this.logic += "".concat(lib_id, "->").concat(method, "(");
-                        var n = 0;
-                        for (var _i = 0, params_2 = params; _i < params_2.length; _i++) {
-                            var p = params_2[_i];
-                            switch (p.type) {
-                                case "lambda":
-                                    this.logic += "[]() -> {";
-                                    this.logic += p.contents;
-                                    this.logic += '}';
-                                    break;
-                                case "string":
-                                    this.logic += "\"".concat(p.contents, "\""); //TODO escape
-                                    break;
-                                case "number":
-                                    this.logic += p.contents; // TODO: sanitize
-                                    break;
-                                default:
-                                    this.logic += p.contents;
-                                    break;
-                            }
-                            if (++n < params.length) {
-                                this.logic += ',';
-                            }
-                        }
-                        this.consumeIf("whitespace");
-                        if (this.accept(";").present) {
+                        if (this.accept(";").present || this.accept("newline").present) {
                             this.offset += 1;
-                            this.logic += "".concat(lib_id, ".").concat(method, "(");
-                            this.logic += this.makeLogicParams(params);
+                            this.logic += "".concat(lib_id, "->").concat(this.translateMethod(transport, method), "(");
+                            var n = 0;
+                            for (var _i = 0, params_2 = params; _i < params_2.length; _i++) {
+                                var p = params_2[_i];
+                                switch (p.type) {
+                                    case "lambda":
+                                        this.logic += "[]() -> {";
+                                        this.logic += p.contents;
+                                        this.logic += "}";
+                                        break;
+                                    case "string":
+                                        this.logic += "\"".concat(p.contents, "\""); //TODO escape
+                                        break;
+                                    case "number":
+                                        this.logic += p.contents; // TODO: sanitize
+                                        break;
+                                    default:
+                                        this.logic += p.contents;
+                                        break;
+                                }
+                                if (++n < params.length) {
+                                    this.logic += ",";
+                                }
+                            }
                             this.logic += ");\n";
                             return this.programBlock();
                         }
+                        this.consumeIf("whitespace");
                         if (this.accept("=>").present) {
-                            this.debug("found =>");
                             this.offset += 2;
                             this.consumeIf("whitespace");
                             var file_name = this.expect("filename").contents;
-                            this.debug("file_name: \"".concat(file_name, "\""));
-                            // TODO: assoicate "lib" with the randomly generated library name above
                             this.logic += "".concat(lib_id, "->stream_method_to(").concat(this.cpp_method(transport, method), ",");
                             this.logic += this.makeLogicParams(params);
                             this.logic += ",\"".concat(file_name, "\");\n");
@@ -659,7 +647,7 @@ var netlang;
                             case 2:
                                 res = { ok: false, issue: "", line: -1 };
                                 this.programBlock();
-                                this.debug(this.logic);
+                                //this.debug(this.logic);
                                 return [2 /*return*/, res];
                         }
                     });
@@ -704,7 +692,6 @@ var netlang;
                                 return [4 /*yield*/, this.tokenizeEmbeds(file)];
                             case 3:
                                 embeds = _h.sent();
-                                this.debug({ embeds: embeds });
                                 for (_g = 0, embeds_1 = embeds; _g < embeds_1.length; _g++) {
                                     pair = embeds_1[_g];
                                     userEmbeds += "static constexpr const char* netlang_embed_".concat(pair[0], " = \"").concat(pair[1], "\";\n");

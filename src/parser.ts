@@ -3,7 +3,7 @@ const dotenv = require("dotenv");
 const NodeFS = require("fs");
 const NodeChildProcess = require("child_process");
 const NodeCrytpo = require("crypto");
-import { LambdaParser } from "./lambda-parser";
+import { LambdaParser, LambdaMetadata } from "./lambda-parser";
 
 export namespace netlang.parser {
   export type Method =
@@ -145,6 +145,10 @@ export namespace netlang.parser {
       this.offset = 0;
       this.line = 1;
       return this.buffer;
+    }
+    dd() {
+      this.dump();
+      process.exit(0);
     }
     accept(sym: SymToken): Accepted {
       switch (sym) {
@@ -335,7 +339,7 @@ export namespace netlang.parser {
         }
       }
       let name: string = `lib_${transport}_${this.randomAlpha(8)}`;
-      this.logic += `std::unique_ptr<netlang::transports::${transport}::lib> ${name} = netlang::transports::${transport}::make();\n`;
+      this.logic += `auto ${name} = netlang::transports::${transport}::make();\n`;
       this.transportLibraries.push({
         transport: transport,
         name,
@@ -387,18 +391,20 @@ export namespace netlang.parser {
       return true;
     }
     parseLambda(): string {
-      /**
-       * THis is extremely one-dimensional and needs work:
-       * currently, it only accepts:
-       * []() -> {
-       *   logic goes here
-       *   logic goes here
-       *   logic goes here
-       * }
-       */
-      let logic: string = this.lambdaParser.parse(this.buffer, this.offset);
-      this.offset += logic.length;
-      return logic;
+      this.lambdaParser.parse(this.buffer, this.offset);
+      this.offset = this.lambdaParser.getOffset();
+
+      let ast: LambdaMetadata = this.lambdaParser.generateProgram();
+      for (const inc of ast.includes) {
+        this.includes.push(inc);
+      }
+      for (const uinc of ast.userIncludes) {
+        this.userIncludes.push(uinc);
+      }
+      for (const emb of ast.userEmbeds) {
+        this.userEmbeds.push(emb);
+      }
+      return ast.logic.join("\n");
     }
     parseNumeric(): string {
       let n: string = "";
@@ -591,13 +597,8 @@ export namespace netlang.parser {
           let transport: string = acc.contents;
           exp = this.expect("method");
           let method: string = exp.contents;
-          if (!exp.present) {
-            this.reportError("Expected method");
-            return;
-          } else {
-            this.debug(`Method found: "${exp.contents}"`);
-            this.offset += exp.contents.length + 1; // +1 to account for .
-          }
+          this.debug(`Method found: "${exp.contents}"`);
+          this.offset += exp.contents.length + 1; // +1 to account for .
           if (
             !this.acceptableTransportMethod(
               <Transport>transport,
@@ -611,9 +612,32 @@ export namespace netlang.parser {
           this.offset += 1;
 
           let params: Array<Parameter> = this.parameters();
-
           this.expect(")");
           this.offset += 1;
+
+          this.logic += `${lib_id}->${method}(`;
+          let n : number = 0;
+          for(const p of params) {
+            switch (p.type) {
+              case "lambda":
+                this.logic += "[]() -> {";
+                this.logic += p.contents;
+                this.logic += '}';
+                break;
+              case "string":
+                this.logic += `"${p.contents}"`; //TODO escape
+                break;
+              case "number":
+                this.logic += p.contents; // TODO: sanitize
+                break;
+              default:
+                this.logic += p.contents;
+                break;
+            }
+            if(++n < params.length){
+              this.logic += ',';
+            }
+          }
           this.consumeIf("whitespace");
           if (this.accept(";").present) {
             this.offset += 1;
@@ -707,7 +731,8 @@ export namespace netlang.parser {
       return list;
     }
     debug(msg: any) {
-      console.debug(JSON.stringify(msg, null, 2));
+      process.stdout.write("PARSER: ");
+      console.debug(msg);
     }
 
     async parse(): Promise<ParseResult> {
@@ -737,14 +762,17 @@ export namespace netlang.parser {
       const main: string = `int main(int argc,char** argv){\n`;
       await this.parse();
       let includes: string = "";
+      this.includes = this.unique<string>(this.includes);
       for (const lib of this.includes) {
         includes += `#include ${lib}\n`;
       }
       let userIncludes: string = "";
+      this.userIncludes = this.unique<string>(this.userIncludes);
       for (const file of this.userIncludes) {
         userIncludes += `netlang::register_env("${file}");\n`;
       }
       let userEmbeds: string = "";
+      this.userEmbeds = this.unique<string>(this.userEmbeds);
       for (const file of this.userEmbeds) {
         let embeds: Array<[string, string]> = await this.tokenizeEmbeds(file);
         this.debug({ embeds });
@@ -755,10 +783,21 @@ export namespace netlang.parser {
       this.logic = `${includes}\n${userEmbeds}\n${main}${userIncludes}\n${this.logic}`;
       this.logic += `\nreturn 0;}\n`;
       await NodeFS.writeFileSync("/tmp/netlang-0.cpp", this.logic);
-      await NodeChildProcess.execSync(
-        `g++ -I$PWD/cpp/ -I$PWD/cpp/boost-includes -std=c++20 /tmp/netlang-0.cpp -o '${out_file}'`
-      );
+      let compile_statement: string = `g++ -I$PWD/cpp/ -I$PWD/cpp/boost-includes -std=c++20 /tmp/netlang-0.cpp -o '${out_file}'`;
+      this.debug("############################################");
+      this.debug(compile_statement);
+      this.debug("############################################");
+      await NodeChildProcess.execSync(compile_statement);
       this.debug("done. look for /tmp/netlang.out");
+    }
+    unique<T>(arr: Array<T>): Array<T> {
+      let u: Array<T> = [];
+      for (const c of arr) {
+        if (u.indexOf(c) === -1) {
+          u.push(c);
+        }
+      }
+      return u;
     }
   }
 }

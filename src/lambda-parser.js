@@ -1,40 +1,4 @@
 "use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
-var __generator = (this && this.__generator) || function (thisArg, body) {
-    var _ = { label: 0, sent: function() { if (t[0] & 1) throw t[1]; return t[1]; }, trys: [], ops: [] }, f, y, t, g;
-    return g = { next: verb(0), "throw": verb(1), "return": verb(2) }, typeof Symbol === "function" && (g[Symbol.iterator] = function() { return this; }), g;
-    function verb(n) { return function (v) { return step([n, v]); }; }
-    function step(op) {
-        if (f) throw new TypeError("Generator is already executing.");
-        while (g && (g = 0, op[0] && (_ = 0)), _) try {
-            if (f = 1, y && (t = op[0] & 2 ? y["return"] : op[0] ? y["throw"] || ((t = y["return"]) && t.call(y), 0) : y.next) && !(t = t.call(y, op[1])).done) return t;
-            if (y = 0, t) op = [op[0] & 2, t.value];
-            switch (op[0]) {
-                case 0: case 1: t = op; break;
-                case 4: _.label++; return { value: op[1], done: false };
-                case 5: _.label++; y = op[1]; op = [0]; continue;
-                case 7: op = _.ops.pop(); _.trys.pop(); continue;
-                default:
-                    if (!(t = _.trys, t = t.length > 0 && t[t.length - 1]) && (op[0] === 6 || op[0] === 2)) { _ = 0; continue; }
-                    if (op[0] === 3 && (!t || (op[1] > t[0] && op[1] < t[3]))) { _.label = op[1]; break; }
-                    if (op[0] === 6 && _.label < t[1]) { _.label = t[1]; t = op; break; }
-                    if (t && _.label < t[2]) { _.label = t[2]; _.ops.push(op); break; }
-                    if (t[2]) _.ops.pop();
-                    _.trys.pop(); continue;
-            }
-            op = body.call(thisArg, _);
-        } catch (e) { op = [6, e]; y = 0; } finally { f = t = 0; }
-        if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
-    }
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.LambdaParser = void 0;
 var dotenv = require("dotenv");
@@ -48,29 +12,12 @@ var LambdaParser = /** @class */ (function () {
         this.line = 0;
         this.transportLibraries = [];
         this.includes = [];
-        this.logic = "";
+        this.logic = [];
         this.userIncludes = [];
         this.userEmbeds = [];
         this.envImports = [];
         this.requiresDbImport = false;
     }
-    LambdaParser.prototype.readFile = function (name) {
-        return __awaiter(this, void 0, void 0, function () {
-            var _a;
-            return __generator(this, function (_b) {
-                switch (_b.label) {
-                    case 0:
-                        _a = this;
-                        return [4 /*yield*/, NodeFS.readFileSync(name)];
-                    case 1:
-                        _a.buffer = (_b.sent()).toString();
-                        this.offset = 0;
-                        this.line = 1;
-                        return [2 /*return*/, this.buffer];
-                }
-            });
-        });
-    };
     LambdaParser.prototype.accept = function (sym) {
         switch (sym) {
             case "numeric": {
@@ -162,11 +109,12 @@ var LambdaParser = /** @class */ (function () {
             present: false,
             contents: "",
         };
+        this.debug("Expecting: '".concat(sym, "'"));
         switch (sym) {
             case "method":
                 var matches = this.buffer
-                    .substr(this.offset, String("options").length + 1)
-                    .match(/^.(when|define|exec|protect|run|knock|host|get|put|post|delete|options)/);
+                    .substr(this.offset, String("echo_request").length + 1)
+                    .match(/^.(echo_request|when|define|exec|protect|run|knock|host|get|put|post|delete|options)/);
                 if (matches) {
                     return {
                         present: true,
@@ -234,11 +182,9 @@ var LambdaParser = /** @class */ (function () {
             default:
                 return exp;
         }
+        this.dump();
         throw "Expected ".concat(sym);
         return exp;
-    };
-    LambdaParser.prototype.reportError = function (msg) {
-        console.error("ERROR: ".concat(msg, " on line: ").concat(this.line));
     };
     LambdaParser.prototype.getTransportLibrary = function (transport) {
         for (var _i = 0, _a = this.transportLibraries; _i < _a.length; _i++) {
@@ -248,7 +194,7 @@ var LambdaParser = /** @class */ (function () {
             }
         }
         var name = "lib_".concat(transport, "_").concat(this.randomAlpha(8));
-        this.logic += "std::unique_ptr<netlang::transports::".concat(transport, "::lib> ").concat(name, " = netlang::transports::").concat(transport, "::make();\n");
+        this.logic.push("std::unique_ptr<netlang::transports::".concat(transport, "::lib> ").concat(name, " = netlang::transports::").concat(transport, "::make();\n"));
         this.transportLibraries.push({
             transport: transport,
             name: name,
@@ -295,37 +241,9 @@ var LambdaParser = /** @class */ (function () {
         }
         return true;
     };
-    LambdaParser.prototype.parseLambda = function () {
-        /**
-         * THis is extremely one-dimensional and needs work:
-         * currently, it only accepts:
-         * []() -> {
-         *   logic goes here
-         *   logic goes here
-         *   logic goes here
-         * }
-         */
-        var l = "";
-        this.expect("[");
-        this.offset += 1;
-        this.expect("]");
-        this.offset += 1;
-        this.expect("(");
-        this.offset += 1;
-        this.expect(")");
-        this.offset += 1;
-        this.consumeIf("whitespace");
-        this.expect("->");
-        this.offset += 2;
-        this.consumeIf("whitespace");
-        this.expect("{");
-        this.consumeIf("whitespace");
-        for (; this.buffer.length > this.offset && this.buffer[this.offset] != "}"; this.offset++) {
-            l += this.buffer[this.offset];
-        }
-        this.expect("}");
-        this.offset += 1;
-        return l;
+    LambdaParser.prototype.dd = function () {
+        this.dump();
+        process.exit(0);
     };
     LambdaParser.prototype.parseNumeric = function () {
         var n = "";
@@ -353,21 +271,21 @@ var LambdaParser = /** @class */ (function () {
         }
         acc = this.accept("lambda-capture");
         if (acc.present) {
-            this.debug("lambda capture recognized");
-            var lambda = this.parseLambda();
-            this.debug("lambda: \"".concat(lambda, "\""));
-            params.push({
-                type: "lambda",
-                contents: lambda,
-            });
-            var tmp = this.parameters();
-            if (tmp.length) {
-                for (var _i = 0, tmp_1 = tmp; _i < tmp_1.length; _i++) {
-                    var t = tmp_1[_i];
-                    params.push(t);
-                }
-            }
-            return params;
+            throw "Lambdas cannot be nested";
+            //this.debug("lambda capture recognized");
+            //let lambda: string = this.parseLambda();
+            //this.debug(`lambda: "${lambda}"`);
+            //params.push({
+            //  type: "lambda",
+            //  contents: lambda,
+            //});
+            //let tmp: Array<Parameter> = this.parameters();
+            //if (tmp.length) {
+            //  for (const t of tmp) {
+            //    params.push(t);
+            //  }
+            //}
+            //return params;
         }
         var single_quote = false;
         var double_quote = false;
@@ -405,8 +323,8 @@ var LambdaParser = /** @class */ (function () {
             this.offset += 1;
             var tmp = this.parameters();
             if (tmp.length) {
-                for (var _a = 0, tmp_2 = tmp; _a < tmp_2.length; _a++) {
-                    var t = tmp_2[_a];
+                for (var _i = 0, tmp_1 = tmp; _i < tmp_1.length; _i++) {
+                    var t = tmp_1[_i];
                     params.push(t);
                 }
             }
@@ -445,27 +363,70 @@ var LambdaParser = /** @class */ (function () {
         return prog;
     };
     LambdaParser.prototype.programBlock = function () {
-        try {
-            var acc = { present: false, contents: "" };
-            var exp = { present: false, contents: "" };
-            if (this.accept("newline").present) {
-                this.debug("found newline. consuming line");
-                this.consumeLine();
-                return this.programBlock();
-            }
-            acc = this.accept("whitespace");
-            if (acc.present) {
-                this.debug("found whitespace");
-                this.offset += acc.contents.length;
-                return this.programBlock();
-            }
-            if (this.accept("lambda-capture").present) {
-                this.logic += this.parseLambda();
+        var acc = { present: false, contents: "" };
+        var exp = { present: false, contents: "" };
+        this.consumeIf("whitespace");
+        acc = this.accept("comment");
+        if (acc.present) {
+            this.consumeLine();
+            return this.programBlock();
+        }
+        if (this.accept("}").present) {
+            return;
+        }
+        acc = this.accept("transport");
+        var lib_id = "";
+        if (acc.present) {
+            lib_id = this.getTransportLibrary(acc.contents);
+            this.includes.push("\"transports/".concat(acc.contents, ".hpp\""));
+            this.offset += acc.contents.length;
+            this.debug("Transport recognized: " + acc.contents);
+            var transport = acc.contents;
+            exp = this.expect("method");
+            var method = exp.contents;
+            if (!exp.present) {
+                throw "Expected method";
                 return;
             }
-        }
-        catch (e) {
-            this.reportError(e);
+            else {
+                this.debug("Method found: \"".concat(exp.contents, "\""));
+                this.offset += exp.contents.length + 1; // +1 to account for .
+            }
+            if (!this.acceptableTransportMethod(transport, exp.contents)) {
+                throw "Invalid method for transport";
+                return;
+            }
+            this.expect("(");
+            this.offset += 1;
+            var params = this.parameters();
+            this.expect(")");
+            this.offset += 1;
+            this.consumeIf("whitespace");
+            if (this.accept(";").present) {
+                this.offset += 1;
+                this.logic.push("".concat(lib_id, ".").concat(method, "(") + this.makeLogicParams(params) + ");\n");
+                return this.programBlock();
+            }
+            if (this.accept("=>").present) {
+                this.debug("found =>");
+                this.offset += 2;
+                this.consumeIf("whitespace");
+                var file_name = this.expect("filename").contents;
+                this.debug("file_name: \"".concat(file_name, "\""));
+                // TODO: assoicate "lib" with the randomly generated library name above
+                this.logic.push("".concat(lib_id, "->stream_method_to(").concat(this.cpp_method(transport, method), ",") +
+                    this.makeLogicParams(params) +
+                    ",\"".concat(file_name, "\");\n"));
+                this.offset += file_name.length;
+            }
+            if (this.accept(")").present) {
+                this.debug("found end of transport.method");
+                this.offset += 1;
+            }
+            this.expect(";");
+            this.offset += 1;
+            this.consumeIf("whitespace");
+            return this.programBlock();
         }
     };
     LambdaParser.prototype.cpp_method = function (transport, method) {
@@ -499,10 +460,11 @@ var LambdaParser = /** @class */ (function () {
         return url;
     };
     LambdaParser.prototype.debug = function (msg) {
-        console.debug(JSON.stringify(msg, null, 2));
+        process.stdout.write('LAMBDA_PARSER: ');
+        console.debug(msg);
     };
     LambdaParser.prototype.initialize = function () {
-        this.logic = "";
+        this.logic = [];
         this.buffer = "";
         this.offset = 0;
         this.line = 0;
@@ -517,9 +479,35 @@ var LambdaParser = /** @class */ (function () {
         this.initialize();
         this.buffer = buffer;
         this.offset = offset;
+        this.expect("[");
+        this.offset += 1;
+        this.expect("]");
+        this.offset += 1;
+        this.expect("(");
+        this.offset += 1;
+        this.expect(")");
+        this.offset += 1;
+        this.consumeIf("whitespace");
+        this.expect("->");
+        this.offset += 2;
+        this.consumeIf("whitespace");
+        this.expect("{");
+        this.offset += 1;
+        this.consumeIf("whitespace");
         this.programBlock();
-        this.debug(this.logic);
-        return this.logic;
+        this.expect("}");
+        this.offset += 1;
+    };
+    LambdaParser.prototype.generateProgram = function () {
+        return {
+            includes: this.includes,
+            userIncludes: this.userIncludes,
+            userEmbeds: this.userEmbeds,
+            logic: this.logic,
+        };
+    };
+    LambdaParser.prototype.getOffset = function () {
+        return this.offset;
     };
     return LambdaParser;
 }());

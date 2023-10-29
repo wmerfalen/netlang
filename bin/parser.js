@@ -81,6 +81,10 @@ var netlang;
                     });
                 });
             };
+            RecursiveDescentParser.prototype.dd = function () {
+                this.dump();
+                process.exit(0);
+            };
             RecursiveDescentParser.prototype.accept = function (sym) {
                 switch (sym) {
                     case "numeric": {
@@ -307,18 +311,22 @@ var netlang;
                 return true;
             };
             RecursiveDescentParser.prototype.parseLambda = function () {
-                /**
-                 * THis is extremely one-dimensional and needs work:
-                 * currently, it only accepts:
-                 * []() -> {
-                 *   logic goes here
-                 *   logic goes here
-                 *   logic goes here
-                 * }
-                 */
-                var logic = this.lambdaParser.parse(this.buffer, this.offset);
-                this.offset += logic.length;
-                return logic;
+                this.lambdaParser.parse(this.buffer, this.offset);
+                this.offset = this.lambdaParser.getOffset();
+                var ast = this.lambdaParser.generateProgram();
+                for (var _i = 0, _a = ast.includes; _i < _a.length; _i++) {
+                    var inc = _a[_i];
+                    this.includes.push(inc);
+                }
+                for (var _b = 0, _c = ast.userIncludes; _b < _c.length; _b++) {
+                    var uinc = _c[_b];
+                    this.userIncludes.push(uinc);
+                }
+                for (var _d = 0, _e = ast.userEmbeds; _d < _e.length; _d++) {
+                    var emb = _e[_d];
+                    this.userEmbeds.push(emb);
+                }
+                return ast.logic.join("\n");
             };
             RecursiveDescentParser.prototype.parseNumeric = function () {
                 var n = "";
@@ -510,14 +518,8 @@ var netlang;
                         var transport = acc.contents;
                         exp = this.expect("method");
                         var method = exp.contents;
-                        if (!exp.present) {
-                            this.reportError("Expected method");
-                            return;
-                        }
-                        else {
-                            this.debug("Method found: \"".concat(exp.contents, "\""));
-                            this.offset += exp.contents.length + 1; // +1 to account for .
-                        }
+                        this.debug("Method found: \"".concat(exp.contents, "\""));
+                        this.offset += exp.contents.length + 1; // +1 to account for .
                         if (!this.acceptableTransportMethod(transport, exp.contents)) {
                             this.reportError("Invalid method for transport");
                             return;
@@ -527,6 +529,30 @@ var netlang;
                         var params = this.parameters();
                         this.expect(")");
                         this.offset += 1;
+                        this.logic += "".concat(lib_id, "->").concat(method, "(");
+                        var n = 0;
+                        for (var _i = 0, params_2 = params; _i < params_2.length; _i++) {
+                            var p = params_2[_i];
+                            switch (p.type) {
+                                case "lambda":
+                                    this.logic += "[]() -> {";
+                                    this.logic += p.contents;
+                                    this.logic += '}';
+                                    break;
+                                case "string":
+                                    this.logic += "\"".concat(p.contents, "\""); //TODO escape
+                                    break;
+                                case "number":
+                                    this.logic += p.contents; // TODO: sanitize
+                                    break;
+                                default:
+                                    this.logic += p.contents;
+                                    break;
+                            }
+                            if (++n < params.length) {
+                                this.logic += ',';
+                            }
+                        }
                         this.consumeIf("whitespace");
                         if (this.accept(";").present) {
                             this.offset += 1;
@@ -609,7 +635,8 @@ var netlang;
                 });
             };
             RecursiveDescentParser.prototype.debug = function (msg) {
-                console.debug(JSON.stringify(msg, null, 2));
+                process.stdout.write("PARSER: ");
+                console.debug(msg);
             };
             RecursiveDescentParser.prototype.parse = function () {
                 return __awaiter(this, void 0, void 0, function () {
@@ -640,7 +667,7 @@ var netlang;
             };
             RecursiveDescentParser.prototype.generateProgram = function (requested_out_file) {
                 return __awaiter(this, void 0, void 0, function () {
-                    var out_file, _i, requested_out_file_1, ch, main, includes, _a, _b, lib, userIncludes, _c, _d, file, userEmbeds, _e, _f, file, embeds, _g, embeds_1, pair;
+                    var out_file, _i, requested_out_file_1, ch, main, includes, _a, _b, lib, userIncludes, _c, _d, file, userEmbeds, _e, _f, file, embeds, _g, embeds_1, pair, compile_statement;
                     return __generator(this, function (_h) {
                         switch (_h.label) {
                             case 0:
@@ -656,16 +683,19 @@ var netlang;
                             case 1:
                                 _h.sent();
                                 includes = "";
+                                this.includes = this.unique(this.includes);
                                 for (_a = 0, _b = this.includes; _a < _b.length; _a++) {
                                     lib = _b[_a];
                                     includes += "#include ".concat(lib, "\n");
                                 }
                                 userIncludes = "";
+                                this.userIncludes = this.unique(this.userIncludes);
                                 for (_c = 0, _d = this.userIncludes; _c < _d.length; _c++) {
                                     file = _d[_c];
                                     userIncludes += "netlang::register_env(\"".concat(file, "\");\n");
                                 }
                                 userEmbeds = "";
+                                this.userEmbeds = this.unique(this.userEmbeds);
                                 _e = 0, _f = this.userEmbeds;
                                 _h.label = 2;
                             case 2:
@@ -689,7 +719,11 @@ var netlang;
                                 return [4 /*yield*/, NodeFS.writeFileSync("/tmp/netlang-0.cpp", this.logic)];
                             case 6:
                                 _h.sent();
-                                return [4 /*yield*/, NodeChildProcess.execSync("g++ -I$PWD/cpp/ -I$PWD/cpp/boost-includes -std=c++20 /tmp/netlang-0.cpp -o '".concat(out_file, "'"))];
+                                compile_statement = "g++ -I$PWD/cpp/ -I$PWD/cpp/boost-includes -std=c++20 /tmp/netlang-0.cpp -o '".concat(out_file, "'");
+                                this.debug("############################################");
+                                this.debug(compile_statement);
+                                this.debug("############################################");
+                                return [4 /*yield*/, NodeChildProcess.execSync(compile_statement)];
                             case 7:
                                 _h.sent();
                                 this.debug("done. look for /tmp/netlang.out");
@@ -697,6 +731,16 @@ var netlang;
                         }
                     });
                 });
+            };
+            RecursiveDescentParser.prototype.unique = function (arr) {
+                var u = [];
+                for (var _i = 0, arr_1 = arr; _i < arr_1.length; _i++) {
+                    var c = arr_1[_i];
+                    if (u.indexOf(c) === -1) {
+                        u.push(c);
+                    }
+                }
+                return u;
             };
             return RecursiveDescentParser;
         }());

@@ -76,6 +76,13 @@ export type SymToken =
 
 type ParameterType = "string" | "lambda" | "number";
 
+export interface LambdaMetadata {
+  includes: Array<string>;
+  userIncludes: Array<string>;
+  userEmbeds: Array<string>;
+  logic: Array<string>;
+}
+
 interface Parameter {
   type: ParameterType;
   contents: string | number;
@@ -102,7 +109,7 @@ export class LambdaParser {
   buffer: string;
   offset: number;
   line: number;
-  logic: string;
+  logic: Array<string>;
   includes: Array<string>;
   transportLibraries: Array<TransportVariableDeclaration>;
   userIncludes: Array<string>;
@@ -115,17 +122,11 @@ export class LambdaParser {
     this.line = 0;
     this.transportLibraries = [];
     this.includes = [];
-    this.logic = "";
+    this.logic = [];
     this.userIncludes = [];
     this.userEmbeds = [];
     this.envImports = [];
     this.requiresDbImport = false;
-  }
-  async readFile(name: string): Promise<string> {
-    this.buffer = (await NodeFS.readFileSync(name)).toString();
-    this.offset = 0;
-    this.line = 1;
-    return this.buffer;
   }
   accept(sym: SymToken): Accepted {
     switch (sym) {
@@ -228,12 +229,13 @@ export class LambdaParser {
       present: false,
       contents: "",
     };
+    this.debug(`Expecting: '${sym}'`);
     switch (sym) {
       case "method":
         let matches = this.buffer
-          .substr(this.offset, String("options").length + 1)
+          .substr(this.offset, String("echo_request").length + 1)
           .match(
-            /^.(when|define|exec|protect|run|knock|host|get|put|post|delete|options)/
+            /^.(echo_request|when|define|exec|protect|run|knock|host|get|put|post|delete|options)/
           );
         if (matches) {
           return {
@@ -302,11 +304,9 @@ export class LambdaParser {
       default:
         return exp;
     }
+    this.dump();
     throw `Expected ${sym}`;
     return exp;
-  }
-  reportError(msg: string) {
-    console.error(`ERROR: ${msg} on line: ${this.line}`);
   }
   getTransportLibrary(transport: Transport): string {
     for (const lib of this.transportLibraries) {
@@ -315,7 +315,9 @@ export class LambdaParser {
       }
     }
     let name: string = `lib_${transport}_${this.randomAlpha(8)}`;
-    this.logic += `std::unique_ptr<netlang::transports::${transport}::lib> ${name} = netlang::transports::${transport}::make();\n`;
+    this.logic.push(
+      `auto ${name} = netlang::transports::${transport}::make();\n`
+    );
     this.transportLibraries.push({
       transport: transport,
       name,
@@ -366,41 +368,9 @@ export class LambdaParser {
     }
     return true;
   }
-  parseLambda(): string {
-    /**
-     * THis is extremely one-dimensional and needs work:
-     * currently, it only accepts:
-     * []() -> {
-     *   logic goes here
-     *   logic goes here
-     *   logic goes here
-     * }
-     */
-    let l: string = "";
-    this.expect("[");
-    this.offset += 1;
-    this.expect("]");
-    this.offset += 1;
-    this.expect("(");
-    this.offset += 1;
-    this.expect(")");
-    this.offset += 1;
-    this.consumeIf("whitespace");
-    this.expect("->");
-    this.offset += 2;
-    this.consumeIf("whitespace");
-    this.expect("{");
-    this.consumeIf("whitespace");
-    for (
-      ;
-      this.buffer.length > this.offset && this.buffer[this.offset] != "}";
-      this.offset++
-    ) {
-      l += this.buffer[this.offset];
-    }
-    this.expect("}");
-    this.offset += 1;
-    return l;
+  dd(): void {
+    this.dump();
+    process.exit(0);
   }
   parseNumeric(): string {
     let n: string = "";
@@ -432,20 +402,21 @@ export class LambdaParser {
     }
     acc = this.accept("lambda-capture");
     if (acc.present) {
-      this.debug("lambda capture recognized");
-      let lambda: string = this.parseLambda();
-      this.debug(`lambda: "${lambda}"`);
-      params.push({
-        type: "lambda",
-        contents: lambda,
-      });
-      let tmp: Array<Parameter> = this.parameters();
-      if (tmp.length) {
-        for (const t of tmp) {
-          params.push(t);
-        }
-      }
-      return params;
+      throw "Lambdas cannot be nested";
+      //this.debug("lambda capture recognized");
+      //let lambda: string = this.parseLambda();
+      //this.debug(`lambda: "${lambda}"`);
+      //params.push({
+      //  type: "lambda",
+      //  contents: lambda,
+      //});
+      //let tmp: Array<Parameter> = this.parameters();
+      //if (tmp.length) {
+      //  for (const t of tmp) {
+      //    params.push(t);
+      //  }
+      //}
+      //return params;
     }
     let single_quote: boolean = false;
     let double_quote: boolean = false;
@@ -521,27 +492,80 @@ export class LambdaParser {
     return prog;
   }
   programBlock(): void {
-    try {
-      let acc: Accepted = { present: false, contents: "" };
-      let exp: Expected = { present: false, contents: "" };
-      if (this.accept("newline").present) {
-        this.debug("found newline. consuming line");
-        this.consumeLine();
-        return this.programBlock();
+    let acc: Accepted = { present: false, contents: "" };
+    let exp: Expected = { present: false, contents: "" };
+    this.consumeIf("whitespace");
+    acc = this.accept("comment");
+    if (acc.present) {
+      this.consumeLine();
+      return this.programBlock();
+    }
+    if(this.accept("}").present){
+      return;
+    }
+    acc = this.accept("transport");
+    let lib_id: string = "";
+    if (acc.present) {
+      lib_id = this.getTransportLibrary(<Transport>acc.contents);
+      this.includes.push(`"transports/${acc.contents}.hpp"`);
+      this.offset += acc.contents.length;
+      this.debug("Transport recognized: " + acc.contents);
+      let transport: string = acc.contents;
+      exp = this.expect("method");
+      let method: string = exp.contents;
+      if (!exp.present) {
+        throw "Expected method";
+        return;
+      } else {
+        this.debug(`Method found: "${exp.contents}"`);
+        this.offset += exp.contents.length + 1; // +1 to account for .
       }
-      acc = this.accept("whitespace");
-      if (acc.present) {
-        this.debug("found whitespace");
-        this.offset += acc.contents.length;
-        return this.programBlock();
-      }
-
-      if(this.accept("lambda-capture").present){
-        this.logic += this.parseLambda();
+      if (
+        !this.acceptableTransportMethod(
+          <Transport>transport,
+          <Method>exp.contents
+        )
+      ) {
+        throw "Invalid method for transport";
         return;
       }
-    } catch (e: any) {
-      this.reportError(e);
+      this.expect("(");
+      this.offset += 1;
+
+      let params: Array<Parameter> = this.parameters();
+
+      this.expect(")");
+      this.offset += 1;
+      this.consumeIf("whitespace");
+      if (this.accept(";").present) {
+        this.offset += 1;
+        this.logic.push(
+          `${lib_id}.${method}(` + this.makeLogicParams(params) + `);\n`
+        );
+        return this.programBlock();
+      }
+      if (this.accept("=>").present) {
+        this.debug("found =>");
+        this.offset += 2;
+        this.consumeIf("whitespace");
+        let file_name: string = this.expect("filename").contents;
+        this.debug(`file_name: "${file_name}"`);
+        // TODO: assoicate "lib" with the randomly generated library name above
+        this.logic.push(
+          `${lib_id}->stream_method_to(${this.cpp_method(transport, method)},` +
+            this.makeLogicParams(params) +
+            `,"${file_name}");\n`
+        );
+        this.offset += file_name.length;
+      }
+      if (this.accept(")").present) {
+        this.debug("found end of transport.method");
+        this.offset += 1;
+      }
+      this.expect(";");
+      this.offset += 1;
+      this.consumeIf("whitespace");
+      return this.programBlock();
     }
   }
   cpp_method(transport: string, method: string): string {
@@ -589,10 +613,11 @@ export class LambdaParser {
     return url;
   }
   debug(msg: any) {
-    console.debug(JSON.stringify(msg, null, 2));
+    process.stdout.write('LAMBDA_PARSER: ');
+    console.debug(msg);
   }
   initialize(): void {
-    this.logic = "";
+    this.logic = [];
     this.buffer = "";
     this.offset = 0;
     this.line = 0;
@@ -604,12 +629,40 @@ export class LambdaParser {
     this.requiresDbImport = false;
   }
 
-  parse(buffer: string, offset: number): string {
+  parse(buffer: string, offset: number): void {
     this.initialize();
     this.buffer = buffer;
     this.offset = offset;
+    this.expect("[");
+    this.offset += 1;
+    this.expect("]");
+    this.offset += 1;
+    this.expect("(");
+    this.offset += 1;
+    this.expect(")");
+    this.offset += 1;
+    this.consumeIf("whitespace");
+    this.expect("->");
+    this.offset += 2;
+    this.consumeIf("whitespace");
+    this.expect("{");
+    this.offset += 1;
+    this.consumeIf("whitespace");
+
     this.programBlock();
-    this.debug(this.logic);
-    return this.logic;
+
+    this.expect("}");
+    this.offset += 1;
+  }
+  generateProgram(): LambdaMetadata {
+    return {
+      includes: this.includes,
+      userIncludes: this.userIncludes,
+      userEmbeds: this.userEmbeds,
+      logic: this.logic,
+    };
+  }
+  getOffset(): number {
+    return this.offset;
   }
 }

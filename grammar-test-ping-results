@@ -1,7 +1,8 @@
+%embed ".env"
+
 # Every minute run icmp echo request to all hosts on 192.168.1.* subnet
 # Store results in 'uptime' postgres table
       
-%include ".env"
 crontab.run('* * * * *',[]() -> {
   icmp.echo_request('192.168.1.*') |=> [pg.uptime]
   icmp.echo_request('192.168.0.*') |=> [pg.uptime]

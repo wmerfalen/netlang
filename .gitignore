@@ -1,3 +1,5 @@
 dist/
 node_modules
 cpp/a.out
+.env
+func

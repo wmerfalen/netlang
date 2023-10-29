@@ -37,7 +37,7 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 var Parser = require("./parser");
-var NodeFS = require('node:fs/promises');
+var NodeFS = require("node:fs/promises");
 (function main() {
     return __awaiter(this, void 0, void 0, function () {
         var inputFile, file, rdp;
@@ -50,7 +50,7 @@ var NodeFS = require('node:fs/promises');
                         name: inputFile,
                         size: 0
                     };
-                    return [4 /*yield*/, NodeFS.open(inputFile, 'r')];
+                    return [4 /*yield*/, NodeFS.open(inputFile, "r")];
                 case 1:
                     file = (_a.fd = _b.sent(),
                         _a);

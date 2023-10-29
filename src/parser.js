@@ -37,9 +37,11 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.netlang = void 0;
+var dotenv = require("dotenv");
 var NodeFS = require("fs");
-var NodeChildProcess = require('child_process');
-var NodeCrytpo = require('crypto');
+var NodeChildProcess = require("child_process");
+var NodeCrytpo = require("crypto");
+var lambda_parser_1 = require("./lambda-parser");
 var netlang;
 (function (netlang) {
     var parser;
@@ -55,10 +57,12 @@ var netlang;
                 this.includes.push("<iostream>");
                 this.includes.push("\"transports/factory.hpp\"");
                 this.includes.push("<memory>");
-                this.logic = '';
+                this.logic = "";
                 this.userIncludes = [];
+                this.userEmbeds = [];
                 this.envImports = [];
                 this.requiresDbImport = false;
+                this.lambdaParser = new lambda_parser_1.LambdaParser();
             }
             RecursiveDescentParser.prototype.readFile = function (name) {
                 return __awaiter(this, void 0, void 0, function () {
@@ -95,7 +99,7 @@ var netlang;
                     }
                     case "transport":
                         var match = this.buffer
-                            .substr(this.offset, String('websocket').length)
+                            .substr(this.offset, String("websocket").length)
                             .match(/^(https|http|http2|udp|tcp|arp|icmp|ssh|scp|sftp|ftp|websocket|crontab|arp|job)/);
                         if (match) {
                             return { present: true, contents: match[1] };
@@ -117,28 +121,35 @@ var netlang;
                         }
                         break;
                     case ",":
-                        if (this.buffer[this.offset] === ',') {
-                            return { present: true, contents: ',' };
+                        if (this.buffer[this.offset] === ",") {
+                            return { present: true, contents: "," };
                         }
                         break;
                     case ";":
-                        if (this.buffer[this.offset] === ';') {
-                            return { present: true, contents: ';' };
+                        if (this.buffer[this.offset] === ";") {
+                            return { present: true, contents: ";" };
                         }
                         break;
                     case "=>":
-                        if (this.buffer.substr(this.offset, 2) === '=>') {
-                            return { present: true, contents: '=>' };
+                        if (this.buffer.substr(this.offset, 2) === "=>") {
+                            return { present: true, contents: "=>" };
                         }
                         break;
                     case "%include":
-                        if (this.buffer.substr(this.offset, String('%include').length) === '%include') {
-                            return { present: true, contents: '%include' };
+                        if (this.buffer.substr(this.offset, String("%include").length) ===
+                            "%include") {
+                            return { present: true, contents: "%include" };
+                        }
+                        break;
+                    case "%embed":
+                        if (this.buffer.substr(this.offset, String("%embed").length) ===
+                            "%embed") {
+                            return { present: true, contents: "%embed" };
                         }
                         break;
                     case "newline":
-                        if (this.buffer.substr(this.offset, 1) === '\n') {
-                            return { present: true, contents: '\n' };
+                        if (this.buffer.substr(this.offset, 1) === "\n") {
+                            return { present: true, contents: "\n" };
                         }
                         break;
                     case "whitespace":
@@ -207,14 +218,14 @@ var netlang;
                         }
                         break;
                     case "=>":
-                        if (this.buffer.substr(this.offset, 2) == '=>') {
-                            return { present: true, contents: '=>' };
+                        if (this.buffer.substr(this.offset, 2) == "=>") {
+                            return { present: true, contents: "=>" };
                         }
                         break;
                     case "filename":
                         var is_file = true;
                         var ctr = void 0;
-                        var file_name = '';
+                        var file_name = "";
                         for (ctr = this.offset; is_file; ++ctr) {
                             is_file = !!this.buffer[ctr].match(/[\(\)_\/ \\a-zA-Z0-9\.]/);
                             if (is_file) {
@@ -257,31 +268,40 @@ var netlang;
                 return name;
             };
             RecursiveDescentParser.prototype.randomAlpha = function (len) {
-                var str = '';
+                var str = "";
                 do {
-                    str += NodeCrytpo.randomBytes(16).toString('base64').replace(/[^a-zA-Z0-9]+/g, '');
+                    str += NodeCrytpo.randomBytes(16)
+                        .toString("base64")
+                        .replace(/[^a-zA-Z0-9]+/g, "");
                 } while (str.length < len);
                 return str.substr(0, len);
             };
             RecursiveDescentParser.prototype.acceptableTransportMethod = function (transport, method) {
-                if (['https', 'http', 'http2'].includes(transport) && [
-                    'when', 'host', 'get', 'post', 'put', 'patch', 'delete', 'options',
-                    'protect',
-                ].includes(method)) {
+                if (["https", "http", "http2"].includes(transport) &&
+                    [
+                        "when",
+                        "host",
+                        "get",
+                        "post",
+                        "put",
+                        "patch",
+                        "delete",
+                        "options",
+                        "protect",
+                    ].includes(method)) {
                     return true;
                 }
-                if (transport === "crontab" && !['run'].includes(method)) {
+                if (transport === "crontab" && !["run"].includes(method)) {
                     return false;
                 }
-                if (transport === "job" && !['define',].includes(method)) {
+                if (transport === "job" && !["define"].includes(method)) {
                     return false;
                 }
-                if (transport === "icmp" && ![
-                    'echo_request', 'echo_reply',
-                ].includes(method)) {
+                if (transport === "icmp" &&
+                    !["echo_request", "echo_reply"].includes(method)) {
                     return false;
                 }
-                if (transport === 'ssh' && !['exec',].includes(method)) {
+                if (transport === "ssh" && !["exec"].includes(method)) {
                     return false;
                 }
                 return true;
@@ -296,31 +316,14 @@ var netlang;
                  *   logic goes here
                  * }
                  */
-                var l = '';
-                this.expect("[");
-                this.offset += 1;
-                this.expect("]");
-                this.offset += 1;
-                this.expect("(");
-                this.offset += 1;
-                this.expect(")");
-                this.offset += 1;
-                this.consumeIf("whitespace");
-                this.expect("->");
-                this.offset += 2;
-                this.consumeIf("whitespace");
-                this.expect("{");
-                this.consumeIf("whitespace");
-                for (; this.buffer.length > this.offset && this.buffer[this.offset] != '}'; this.offset++) {
-                    l += this.buffer[this.offset];
-                }
-                this.expect("}");
-                this.offset += 1;
-                return l;
+                var logic = this.lambdaParser.parse(this.buffer, this.offset);
+                this.offset += logic.length;
+                return logic;
             };
             RecursiveDescentParser.prototype.parseNumeric = function () {
-                var n = '';
-                for (; this.buffer.length > this.offset && !isNaN(parseInt(this.buffer[this.offset], 10)); this.offset++) {
+                var n = "";
+                for (; this.buffer.length > this.offset &&
+                    !isNaN(parseInt(this.buffer[this.offset], 10)); this.offset++) {
                     n += this.buffer[this.offset];
                 }
                 return n;
@@ -343,14 +346,13 @@ var netlang;
                 }
                 acc = this.accept("lambda-capture");
                 if (acc.present) {
-                    this.debug('lambda capture recognized');
+                    this.debug("lambda capture recognized");
                     var lambda = this.parseLambda();
                     this.debug("lambda: \"".concat(lambda, "\""));
                     params.push({
                         type: "lambda",
                         contents: lambda,
                     });
-                    this.dump();
                     var tmp = this.parameters();
                     if (tmp.length) {
                         for (var _i = 0, tmp_1 = tmp; _i < tmp_1.length; _i++) {
@@ -408,7 +410,7 @@ var netlang;
                 console.warn("WARNING: ".concat(msg));
             };
             RecursiveDescentParser.prototype.makeLogicParams = function (params) {
-                var prog = '';
+                var prog = "";
                 var ctr = 0;
                 var PARAM_LEN = params.length;
                 for (var _i = 0, params_1 = params; _i < params_1.length; _i++) {
@@ -440,7 +442,7 @@ var netlang;
                     var acc = { present: false, contents: "" };
                     var exp = { present: false, contents: "" };
                     if (this.accept("newline").present) {
-                        this.debug('found newline. consuming line');
+                        this.debug("found newline. consuming line");
                         this.consumeLine();
                         return this.programBlock();
                     }
@@ -456,18 +458,37 @@ var netlang;
                         this.consumeLine();
                         return this.programBlock();
                     }
-                    acc = this.accept("%include");
+                    acc = this.accept("%embed");
                     if (acc.present) {
-                        this.debug('found %include');
-                        this.offset += String('%include').length;
+                        this.debug("found %embed");
+                        this.offset += String("%embed").length;
                         this.offset += this.expect("whitespace").contents.length;
-                        //this.dump();
                         var single_quote = this.accept("single-quote").present;
                         if (!single_quote) {
                             this.expect("double-quote");
                         }
                         this.offset += 1;
-                        var include = '';
+                        var include = "";
+                        include = this.expect("filename").contents;
+                        this.userEmbeds.push(include);
+                        this.offset += include.length;
+                        this.expect(single_quote ? "single-quote" : "double-quote");
+                        this.offset += 1;
+                        this.expect("newline");
+                        this.offset += 1;
+                        return this.programBlock();
+                    }
+                    acc = this.accept("%include");
+                    if (acc.present) {
+                        this.debug("found %include");
+                        this.offset += String("%include").length;
+                        this.offset += this.expect("whitespace").contents.length;
+                        var single_quote = this.accept("single-quote").present;
+                        if (!single_quote) {
+                            this.expect("double-quote");
+                        }
+                        this.offset += 1;
+                        var include = "";
                         include = this.expect("filename").contents;
                         this.userIncludes.push(include);
                         this.offset += include.length;
@@ -478,7 +499,7 @@ var netlang;
                         return this.programBlock();
                     }
                     acc = this.accept("transport");
-                    var lib_id = '';
+                    var lib_id = "";
                     if (acc.present) {
                         lib_id = this.getTransportLibrary(acc.contents);
                         this.includes.push("\"transports/".concat(acc.contents, ".hpp\""));
@@ -526,7 +547,6 @@ var netlang;
                             this.logic += ",\"".concat(file_name, "\");\n");
                             this.offset += file_name.length;
                         }
-                        this.dump();
                         this.expect(";");
                         this.offset += 1;
                         this.consumeIf("whitespace");
@@ -544,13 +564,14 @@ var netlang;
             RecursiveDescentParser.prototype.consumeIf = function (sym) {
                 switch (sym) {
                     case "whitespace":
-                        for (; this.buffer.length > this.offset && ["\n", "\t", " "].includes(this.buffer[this.offset]);) {
+                        for (; this.buffer.length > this.offset &&
+                            ["\n", "\t", " "].includes(this.buffer[this.offset]);) {
                             this.offset += 1;
                         }
                         break;
                     case ",":
-                        for (; this.buffer.length > this.offset && this.buffer[this.offset] === ','; this.offset += 1) {
-                        }
+                        for (; this.buffer.length > this.offset &&
+                            this.buffer[this.offset] === ","; this.offset += 1) { }
                         break;
                     default:
                         break;
@@ -567,8 +588,28 @@ var netlang;
                 }
                 return url;
             };
+            RecursiveDescentParser.prototype.escapeEnvString = function (str) {
+                var s = "";
+                for (var i = 0; i < str.length; i++) {
+                    s += "\\x" + str.charCodeAt(i).toString(16);
+                }
+                return s;
+            };
+            RecursiveDescentParser.prototype.tokenizeEmbeds = function (file) {
+                return __awaiter(this, void 0, void 0, function () {
+                    var list, parsed, key;
+                    return __generator(this, function (_a) {
+                        list = [];
+                        parsed = dotenv.config({ path: file }).parsed;
+                        for (key in parsed) {
+                            list.push([key, this.escapeEnvString(parsed[key])]);
+                        }
+                        return [2 /*return*/, list];
+                    });
+                });
+            };
             RecursiveDescentParser.prototype.debug = function (msg) {
-                console.debug(msg);
+                console.debug(JSON.stringify(msg, null, 2));
             };
             RecursiveDescentParser.prototype.parse = function () {
                 return __awaiter(this, void 0, void 0, function () {
@@ -599,35 +640,59 @@ var netlang;
             };
             RecursiveDescentParser.prototype.generateProgram = function (requested_out_file) {
                 return __awaiter(this, void 0, void 0, function () {
-                    var out_file, _i, requested_out_file_1, ch, includes, _a, _b, lib;
-                    return __generator(this, function (_c) {
-                        switch (_c.label) {
+                    var out_file, _i, requested_out_file_1, ch, main, includes, _a, _b, lib, userIncludes, _c, _d, file, userEmbeds, _e, _f, file, embeds, _g, embeds_1, pair;
+                    return __generator(this, function (_h) {
+                        switch (_h.label) {
                             case 0:
-                                out_file = '';
+                                out_file = "";
                                 for (_i = 0, requested_out_file_1 = requested_out_file; _i < requested_out_file_1.length; _i++) {
                                     ch = requested_out_file_1[_i];
                                     if (ch.match(/^[a-zA-Z0-9-\/.]{1}$/)) {
                                         out_file += ch;
                                     }
                                 }
-                                this.logic = "int main(int argc,char** argv){\n";
+                                main = "int main(int argc,char** argv){\n";
                                 return [4 /*yield*/, this.parse()];
                             case 1:
-                                _c.sent();
-                                includes = '';
+                                _h.sent();
+                                includes = "";
                                 for (_a = 0, _b = this.includes; _a < _b.length; _a++) {
                                     lib = _b[_a];
                                     includes += "#include ".concat(lib, "\n");
                                 }
-                                this.logic = "".concat(includes, "\n").concat(this.logic);
-                                this.logic += "\nreturn 0;}\n";
-                                return [4 /*yield*/, NodeFS.writeFileSync('/tmp/netlang-0.cpp', this.logic)];
+                                userIncludes = "";
+                                for (_c = 0, _d = this.userIncludes; _c < _d.length; _c++) {
+                                    file = _d[_c];
+                                    userIncludes += "netlang::register_env(\"".concat(file, "\");\n");
+                                }
+                                userEmbeds = "";
+                                _e = 0, _f = this.userEmbeds;
+                                _h.label = 2;
                             case 2:
-                                _c.sent();
-                                return [4 /*yield*/, NodeChildProcess.execSync("g++ -I$PWD/cpp/ -I$PWD/cpp/boost-includes -std=c++20 /tmp/netlang-0.cpp -o '".concat(out_file, "'"))];
+                                if (!(_e < _f.length)) return [3 /*break*/, 5];
+                                file = _f[_e];
+                                return [4 /*yield*/, this.tokenizeEmbeds(file)];
                             case 3:
-                                _c.sent();
-                                this.debug('done. look for /tmp/netlang.out');
+                                embeds = _h.sent();
+                                this.debug({ embeds: embeds });
+                                for (_g = 0, embeds_1 = embeds; _g < embeds_1.length; _g++) {
+                                    pair = embeds_1[_g];
+                                    userEmbeds += "static constexpr const char* netlang_embed_".concat(pair[0], " = \"").concat(pair[1], "\";\n");
+                                }
+                                _h.label = 4;
+                            case 4:
+                                _e++;
+                                return [3 /*break*/, 2];
+                            case 5:
+                                this.logic = "".concat(includes, "\n").concat(userEmbeds, "\n").concat(main).concat(userIncludes, "\n").concat(this.logic);
+                                this.logic += "\nreturn 0;}\n";
+                                return [4 /*yield*/, NodeFS.writeFileSync("/tmp/netlang-0.cpp", this.logic)];
+                            case 6:
+                                _h.sent();
+                                return [4 /*yield*/, NodeChildProcess.execSync("g++ -I$PWD/cpp/ -I$PWD/cpp/boost-includes -std=c++20 /tmp/netlang-0.cpp -o '".concat(out_file, "'"))];
+                            case 7:
+                                _h.sent();
+                                this.debug("done. look for /tmp/netlang.out");
                                 return [2 /*return*/];
                         }
                     });

@@ -63,6 +63,8 @@ var netlang;
                 this.envImports = [];
                 this.requiresDbImport = false;
                 this.lambdaParser = new lambda_parser_1.LambdaParser();
+                this.dbLogic = [];
+                this.mainInitLogic = [];
             }
             RecursiveDescentParser.prototype.readFile = function (name) {
                 return __awaiter(this, void 0, void 0, function () {
@@ -314,16 +316,24 @@ var netlang;
                 this.lambdaParser.parse(this.buffer, this.offset);
                 this.offset = this.lambdaParser.getOffset();
                 var ast = this.lambdaParser.generateProgram();
-                for (var _i = 0, _a = ast.includes; _i < _a.length; _i++) {
-                    var inc = _a[_i];
+                for (var _i = 0, _a = ast.dbLogic; _i < _a.length; _i++) {
+                    var line = _a[_i];
+                    this.dbLogic.push(line);
+                }
+                for (var _b = 0, _c = ast.mainInitLogic; _b < _c.length; _b++) {
+                    var line = _c[_b];
+                    this.mainInitLogic.push(line);
+                }
+                for (var _d = 0, _e = ast.includes; _d < _e.length; _d++) {
+                    var inc = _e[_d];
                     this.includes.push(inc);
                 }
-                for (var _b = 0, _c = ast.userIncludes; _b < _c.length; _b++) {
-                    var uinc = _c[_b];
+                for (var _f = 0, _g = ast.userIncludes; _f < _g.length; _f++) {
+                    var uinc = _g[_f];
                     this.userIncludes.push(uinc);
                 }
-                for (var _d = 0, _e = ast.userEmbeds; _d < _e.length; _d++) {
-                    var emb = _e[_d];
+                for (var _h = 0, _j = ast.userEmbeds; _h < _j.length; _h++) {
+                    var emb = _j[_h];
                     this.userEmbeds.push(emb);
                 }
                 return ast.logic.join("\n");
@@ -655,10 +665,12 @@ var netlang;
             };
             RecursiveDescentParser.prototype.generateProgram = function (requested_out_file) {
                 return __awaiter(this, void 0, void 0, function () {
-                    var out_file, _i, requested_out_file_1, ch, main, includes, _a, _b, lib, userIncludes, _c, _d, file, userEmbeds, _e, _f, file, embeds, _g, embeds_1, pair, compile_statement;
-                    return __generator(this, function (_h) {
-                        switch (_h.label) {
+                    var db_logic, main_init_logic, out_file, _i, requested_out_file_1, ch, main, includes, _a, _b, lib, userIncludes, _c, _d, file, userEmbeds, _e, _f, file, embeds, _g, embeds_1, pair, _h, _j, line, _k, _l, line, compile_statement;
+                    return __generator(this, function (_m) {
+                        switch (_m.label) {
                             case 0:
+                                db_logic = "";
+                                main_init_logic = "";
                                 out_file = "";
                                 for (_i = 0, requested_out_file_1 = requested_out_file; _i < requested_out_file_1.length; _i++) {
                                     ch = requested_out_file_1[_i];
@@ -669,7 +681,7 @@ var netlang;
                                 main = "int main(int argc,char** argv){\n";
                                 return [4 /*yield*/, this.parse()];
                             case 1:
-                                _h.sent();
+                                _m.sent();
                                 includes = "";
                                 this.includes = this.unique(this.includes);
                                 for (_a = 0, _b = this.includes; _a < _b.length; _a++) {
@@ -685,34 +697,42 @@ var netlang;
                                 userEmbeds = "";
                                 this.userEmbeds = this.unique(this.userEmbeds);
                                 _e = 0, _f = this.userEmbeds;
-                                _h.label = 2;
+                                _m.label = 2;
                             case 2:
                                 if (!(_e < _f.length)) return [3 /*break*/, 5];
                                 file = _f[_e];
                                 return [4 /*yield*/, this.tokenizeEmbeds(file)];
                             case 3:
-                                embeds = _h.sent();
+                                embeds = _m.sent();
                                 for (_g = 0, embeds_1 = embeds; _g < embeds_1.length; _g++) {
                                     pair = embeds_1[_g];
-                                    userEmbeds += "static constexpr const char* netlang_embed_".concat(pair[0], " = \"").concat(pair[1], "\";\n");
+                                    userEmbeds += "static constexpr const char* ".concat(pair[0], " = \"").concat(pair[1], "\";\n");
                                 }
-                                _h.label = 4;
+                                _m.label = 4;
                             case 4:
                                 _e++;
                                 return [3 /*break*/, 2];
                             case 5:
-                                this.logic = "".concat(includes, "\n").concat(userEmbeds, "\n").concat(main).concat(userIncludes, "\n").concat(this.logic);
+                                for (_h = 0, _j = this.unique(this.dbLogic); _h < _j.length; _h++) {
+                                    line = _j[_h];
+                                    db_logic += line + "\n";
+                                }
+                                for (_k = 0, _l = this.unique(this.mainInitLogic); _k < _l.length; _k++) {
+                                    line = _l[_k];
+                                    main_init_logic += line + "\n";
+                                }
+                                this.logic = "".concat(includes, "\n").concat(userEmbeds, "\n").concat(db_logic, "\n").concat(main, "\n").concat(main_init_logic, "\n").concat(userIncludes, "\n").concat(this.logic);
                                 this.logic += "\nreturn 0;}\n";
                                 return [4 /*yield*/, NodeFS.writeFileSync("/tmp/netlang-0.cpp", this.logic)];
                             case 6:
-                                _h.sent();
+                                _m.sent();
                                 compile_statement = "g++ -I$PWD/cpp/ -I$PWD/cpp/boost-includes -std=c++20 /tmp/netlang-0.cpp -o '".concat(out_file, "'");
                                 this.debug("############################################");
                                 this.debug(compile_statement);
                                 this.debug("############################################");
                                 return [4 /*yield*/, NodeChildProcess.execSync(compile_statement)];
                             case 7:
-                                _h.sent();
+                                _m.sent();
                                 this.debug("done. look for /tmp/netlang.out");
                                 return [2 /*return*/];
                         }

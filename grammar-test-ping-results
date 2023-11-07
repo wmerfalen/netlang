@@ -1,12 +1,12 @@
 %embed ".env"
 
-# Every minute run icmp echo request to all hosts on 192.168.1.* subnet
-# Store results in 'uptime' postgres table
+# Every minute open connections to github.com and google.com
+# on ports 80 and 443. Store results in 'uptime' postgres table
 
 # Lambdas aren't fully supported yet.
 crontab.run('* * * * *',[]() -> {
-  icmp.echo_request('192.168.1.*') |=> [pg.uptime];
-  icmp.echo_request('192.168.0.*') |=> [pg.uptime];
+  tcp.open('github.com',80,443) |=> [pg.uptime];
+  tcp.open('google.com',80,443) |=> [pg.uptime];
 })
 
 # Host the table results of uptime at /api/v1/uptime

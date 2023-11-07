@@ -106,6 +106,8 @@ export namespace netlang.parser {
     offset: number;
     line: number;
     logic: string;
+    dbLogic: Array<string>;
+    mainInitLogic: Array<string>;
     /**
      * Includes that are internal. This means includes that are
      * part of the generated C++ and not requested by the user
@@ -139,6 +141,8 @@ export namespace netlang.parser {
       this.envImports = [];
       this.requiresDbImport = false;
       this.lambdaParser = new LambdaParser();
+      this.dbLogic = [];
+      this.mainInitLogic = [];
     }
     async readFile(name: string): Promise<string> {
       this.buffer = (await NodeFS.readFileSync(name)).toString();
@@ -395,6 +399,12 @@ export namespace netlang.parser {
       this.offset = this.lambdaParser.getOffset();
 
       let ast: LambdaMetadata = this.lambdaParser.generateProgram();
+      for(const line of ast.dbLogic){
+        this.dbLogic.push(line);
+      }
+      for(const line of ast.mainInitLogic){
+        this.mainInitLogic.push(line);
+      }
       for (const inc of ast.includes) {
         this.includes.push(inc);
       }
@@ -741,6 +751,8 @@ export namespace netlang.parser {
       return res;
     }
     async generateProgram(requested_out_file: string) {
+      let db_logic: string = "";
+      let main_init_logic : string = "";
       let out_file: string = "";
       for (const ch of requested_out_file) {
         if (ch.match(/^[a-zA-Z0-9-\/.]{1}$/)) {
@@ -764,10 +776,16 @@ export namespace netlang.parser {
       for (const file of this.userEmbeds) {
         let embeds: Array<[string, string]> = await this.tokenizeEmbeds(file);
         for (const pair of embeds) {
-          userEmbeds += `static constexpr const char* netlang_embed_${pair[0]} = "${pair[1]}";\n`;
+          userEmbeds += `static constexpr const char* ${pair[0]} = "${pair[1]}";\n`;
         }
       }
-      this.logic = `${includes}\n${userEmbeds}\n${main}${userIncludes}\n${this.logic}`;
+      for(const line of this.unique<string>(this.dbLogic)){
+        db_logic += line + "\n";
+      }
+      for(const line of this.unique<string>(this.mainInitLogic)){
+        main_init_logic += line + "\n";
+      }
+      this.logic = `${includes}\n${userEmbeds}\n${db_logic}\n${main}\n${main_init_logic}\n${userIncludes}\n${this.logic}`;
       this.logic += `\nreturn 0;}\n`;
       await NodeFS.writeFileSync("/tmp/netlang-0.cpp", this.logic);
       let compile_statement: string = `g++ -I$PWD/cpp/ -I$PWD/cpp/boost-includes -std=c++20 /tmp/netlang-0.cpp -o '${out_file}'`;

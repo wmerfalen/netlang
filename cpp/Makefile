@@ -1,5 +1,5 @@
 INCLUDES=-I$(PWD)/boost_1_83_0 -I$(PWD)/boost-includes/
-LIBS=-lpthread
+LIBS=-lpthread -lpqxx -lpq
 BUILD_DIR=build
 all: main-tcp.cpp job
 	g++ -std=c++20 $(INCLUDES) main-tcp.cpp -o tc $(LIBS)

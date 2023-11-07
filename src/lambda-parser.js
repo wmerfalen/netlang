@@ -17,6 +17,8 @@ var LambdaParser = /** @class */ (function () {
         this.userEmbeds = [];
         this.envImports = [];
         this.requiresDbImport = false;
+        this.dbLogic = [];
+        this.mainInitLogic = [];
     }
     LambdaParser.prototype.accept = function (sym) {
         switch (sym) {
@@ -134,7 +136,7 @@ var LambdaParser = /** @class */ (function () {
             case "method":
                 var matches = this.buffer
                     .substr(this.offset, String("echo_request").length + 1)
-                    .match(/^.(echo_request|when|define|exec|protect|run|knock|host|get|put|post|delete|options)/);
+                    .match(/^.(open|echo_request|when|define|exec|protect|run|knock|host|get|put|post|delete|options)/);
                 if (matches) {
                     return {
                         present: true,
@@ -404,6 +406,13 @@ var LambdaParser = /** @class */ (function () {
             this.offset += 1;
             this.consumeIf("whitespace");
             if (this.accept("|=>").present) {
+                /**
+                 * |=> is the db pipe operator. It will look something
+                 * like this:
+                 *
+                 *   tcp.open("github.com",80,443) |=> [pg.uptime]
+                 *
+                 */
                 this.offset += 3;
                 this.consumeIf("whitespace");
                 this.expect("[");
@@ -422,12 +431,15 @@ var LambdaParser = /** @class */ (function () {
                     type: 'string',
                     contents: table,
                 });
+                this.includes.push("\"transports/db.hpp\"");
+                this.dbLogic.push("std::unique_ptr<netlang::transports::db::lib> db_out;\n");
+                this.mainInitLogic.push("db_out = netlang::transports::db::make(DB_HOST,DB_PORT,DB_USER,DB_PASS);\n");
                 this.expect("]");
                 this.offset += 1;
             }
             if (this.accept(";").present) {
                 this.offset += 1;
-                this.logic.push("".concat(lib_id, ".").concat(method, "(") + this.makeLogicParams(params) + ");\n");
+                this.logic.push("".concat(lib_id, "->").concat(method, "(") + this.makeLogicParams(params) + ");\n");
                 return this.programBlock();
             }
             if (this.accept("=>").present) {
@@ -522,6 +534,8 @@ var LambdaParser = /** @class */ (function () {
             includes: this.includes,
             userIncludes: this.userIncludes,
             userEmbeds: this.userEmbeds,
+            dbLogic: this.dbLogic,
+            mainInitLogic: this.mainInitLogic,
             logic: this.logic,
         };
     };
